@@ -1,0 +1,20 @@
+# 用户名
+name = AIzen
+
+# Tripcode (如果不需要设置为 None)
+tc = None
+
+# 头像名称
+avatar = setton
+
+# 房间ID (从房间URL获取，例如：https://drrr.com/room/6JjYq34S35)
+roomID = QqzLKhf3ux
+
+# 用户代理 (Desktop, Mobile, Bot, Tv, Tablet)
+agent = Bot
+
+# 加载的模块 (以逗号分隔)
+mods = AIzen
+
+# 发送消息的等待时间（秒）- 建议至少1秒
+throttle = 1.5
