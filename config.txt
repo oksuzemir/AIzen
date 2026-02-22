@@ -1,5 +1,5 @@
 # 用户名
-name = AIzen
+name = AI-zen
 
 # Tripcode (如果不需要设置为 None)
 tc = None
@@ -8,7 +8,7 @@ tc = None
 avatar = setton
 
 # 房间ID (从房间URL获取，例如：https://drrr.com/room/6JjYq34S35)
-roomID = QqzLKhf3ux
+roomID = sumScSOKEf
 
 # 用户代理 (Desktop, Mobile, Bot, Tv, Tablet)
 agent = Bot

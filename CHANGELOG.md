@@ -4,6 +4,77 @@ Tüm önemli değişiklikler bu dosyada belgelenmektedir.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) standardına uygun
 
+## [1.2.0] - 2026-02-22
+
+### Eklenen ✨
+- **Cevap Validasyon Sistemi**: AI'ın tüm cevapları validate ediliyor
+  - Çok kısa (<10 karakter) cevaplar reject
+  - Çok uzun (>100 karakter) cevaplar reject (chunking önlenir)
+  - Soru içeren cevaplar reject (? veya soru kelimeleri)
+  - Yasaklı kelime/cümle kontrolü
+- **Fallback Cevap Sistemi**: Geçersiz cevaplarda otomatik fallback (8 varyant)
+- **Soru Kelime Tespiti**: "?" olmadan da soruları yakalar (ne yap, nasıl, neden, vs.)
+- **Gelişmiş Debug Logları**: 
+  - AI cevabı gösterimi
+  - Validasyon hataları gösterimi
+  - Fallback kullanımı bildirimi
+
+### Değiştirilen 🔄
+- **System Prompt Tamamen Yenilendi**: 
+  - 6 madde halinde net kurallar
+  - 7 kategori örnek cevaplar
+  - Yanlış örnek listesi eklendi
+  - Daha anlaşılır ve yapılandırılmış
+- **Temperature**: 0.9 → 0.8 → 0.7 (tutarlılık için optimize edildi)
+- **Max Tokens**: 200 → 150 (optimal performans)
+- **Yasaklı Kelime Listesi**: Genişletildi
+  - "ne yaparız", "kahve", "çay", "yemek yedin" eklendi
+  - Tüm "günler" kalıpları yasaklandı
+
+### Düzeltilen 🐛
+- **"in!" Sorunu**: Tek kelimelik garip cevaplar artık reject ediliyor
+- **"ne yaparız lan" Sorunu**: Soru işareti olmayan sorular yakalanıyor
+- **"sabahı iyi olsun" Sorunu**: Yasaklı kelime kontrolü ile engellendi
+- **Chunking Sorunu**: Uzun cevaplar (>100 char) reject, fallback kullanılıyor
+
+### Güvenilirlik 🛡️
+- Minimum 10 karakter garanti
+- Maksimum 100 karakter garanti (140 char limitine uyum)
+- Soru sorma garanti yok
+- Yasaklı kelime kullanımı garanti yok
+- Fallback sistemi ile %100 cevap garantisi
+
+## [1.1.0] - 2026-02-22
+
+### Eklenen ✨
+- **Bot Adı Değişikliği**: AIzen → AI-zen (tire ile)
+- **Model Upgrade**: llama-3.1-8b-instant → llama-3.3-70b-versatile (daha güçlü ve doğal cevaplar)
+- **Otomatik Selam**: Odaya katılan her kullanıcıya otomatik "Hoş geldin! 👋😊" mesajı
+- **"Sen Kimsin" Özel Cevap**: "Sen kimsin?" gibi sorulara teknoloji detayı olmadan özel tanıtım
+- **Owner Authentication**: aizen kullanıcısı için şifre doğrulama sistemi (OWNER_PASSWORD)
+- **Komut Sistemi**: !yardım, !saat, !unutbeni komutları eklendi
+- **Owner Komutları**: !stats, !model, !temp, !clear (sadece owner kullanabilir)
+- **Rate Limiting**: Kullanıcı başına dakikada 5 istek limiti
+- **İstatistik Takibi**: Toplam mesaj, benzersiz kullanıcı, uptime takibi
+- **Auto-Cleanup**: 1 saat inaktif kullanıcıların geçmişi otomatik temizlenir
+- **Sonsuz Döngü Önlemi**: Bot kendi mesajlarına cevap vermeyi önleyen kontrol
+- **Personality İyileştirme**: Daha doğal, basit ve arkadaş canlısı system prompt
+
+### Değiştirilen 🔄
+- **Temperature**: 0.8 → 0.9 (daha yaratıcı cevaplar)
+- **System Prompt**: Tamamen yeniden yazıldı - daha doğal, basit, kasımsız
+- **Komut Örnekleri**: Prompt'a "naber" → "iyidir senden naber" gibi örnekler eklendi
+- **Owner Kontrolü**: "aizen" kullanıcısı için şifre doğrulama (tire olmadan)
+
+### Düzeltilen 🐛
+- **!unutbeni Kontrolü**: Boş liste kontrolü eklendi, sadece gerçek geçmişi siler
+- **Kendi Mesajlarına Cevap**: Bot artık kendi gönderdiği mesajlara cevap vermiyor
+- **Garip Cevaplar**: "sabahları iyiyim", "güzel günler" gibi garip ifadeler yasaklandı
+
+### Kaldırılan ❌
+- **!fal Komutu**: Kahve falı özelliği kaldırıldı
+- **Teknoloji Detayları**: "Sen kimsin" cevabından "Groq'un llama modelini kullanıyorum" kaldırıldı
+
 ## [1.0.0] - 2026-02-22
 
 ### Eklenen ✨

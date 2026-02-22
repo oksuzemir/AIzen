@@ -1,6 +1,6 @@
 # Katkıda Bulunma Rehberi
 
-AIzen projesine katkıda bulunmayı düşündüğünüz için teşekkür ederiz! 🎉
+AI-zen projesine katkıda bulunmayı düşündüğünüz için teşekkür ederiz! 🎉
 
 ## İçindekiler
 
@@ -39,11 +39,11 @@ Bir hata bulduysanız:
 **Örnek:**
 ```markdown
 ## Hata Açıklaması
-Bot @AIzen etiketlemelerine cevap vermiyor
+Bot @AI-zen etiketlemelerine cevap vermiyor
 
 ## Tekrar Etme
 1. python main.py ile botu başlat
-2. drrr.com odasında @AIzen hello yaz
+2. drrr.com odasında @AI-zen hello yaz
 3. Bot cevap vermiyor
 
 ## Beklenen

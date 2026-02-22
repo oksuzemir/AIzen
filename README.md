@@ -1,18 +1,26 @@
-# AIzen - drrr.com AI Chatbot 🤖
+# AI-zen - drrr.com AI Chatbot 🤖
 
-**AIzen**, [drrr.com](https://drrr.com) anonim chat odalarına bağlanan, **Groq (ücretsiz & hızlı!)** destekli akıllı sohbet botudur. Kullanıcılar `@AIzen` ile etiketleyerek bot ile konuşabilir.
+**AI-zen**, [drrr.com](https://drrr.com) anonim chat odalarına bağlanan, **Groq (ücretsiz & hızlı!)** destekli akıllı sohbet botudur. Kullanıcılar `@AI-zen` ile etiketleyerek bot ile konuşabilir.
 
 ## ✨ Özellikler
 
-- 🎯 **@AIzen Etiketleme**: Chat odasında @AIzen yazarak botu çağırabilirsiniz
+- 🎯 **@AI-zen Etiketleme**: Chat odasında @AI-zen yazarak botu çağırabilirsiniz
 - 🧠 **Konuşma Hafızası**: Her kullanıcı için ayrı konuşma geçmişi tutar (max 10 mesaj)
 - 🌐 **Çok Dilli**: Türkçe ve İngilizce destekler, mükemmel Türkçe kullanır
-- ⚡ **Groq API**: Çok hızlı ve tamamen ücretsiz AI (llama-3.1-8b-instant)
+- ⚡ **Groq API**: Çok hızlı ve tamamen ücretsiz AI (llama-3.3-70b-versatile)
 - 📏 **Kısa Cevaplar**: 140 karakter limitine uygun, öz ve net yanıtlar
 - ⏰ **Gerçek Zamanlı**: Her soruda güncel Türkiye saati ve tarih bilgisi
 - 🎨 **Modüler Yapı**: Kolay genişletilebilir modül sistemi
 - 🔐 **Cloudflare Koruması**: Cloudflare korumalı sitelere bağlanabilir
 - 🚫 **DM Yok**: Sadece oda mesajlarına cevap verir (DM'leri görmezden gelir)
+- 👋 **Otomatik Selam**: Odaya katılan herkese hoş geldin mesajı gönderir
+- 🛡️ **Owner Authentication**: Owner kullanıcısı için şifre doğrulama sistemi
+- ⚙️ **Komut Sistemi**: !yardım, !saat, !unutbeni gibi kullanışlı komutlar
+- 🚦 **Rate Limiting**: Kullanıcı başına dakikada 5 istek limiti
+- 🧹 **Auto-Cleanup**: 1 saat inaktif kullanıcıların geçmişi otomatik temizlenir
+- ✅ **Cevap Validasyon**: Her cevap kalite kontrolünden geçer (min 10, max 100 karakter)
+- 🔄 **Fallback Sistemi**: Geçersiz cevaplarda otomatik yedek yanıt
+- 🚫 **Soru Yasağı**: Bot asla karşı soru sormaz, sadece cevap verir
 
 ## 📋 Gereksinimler
 
@@ -64,7 +72,7 @@ GROQ_API_KEY=gsk_your-api-key-here
 
 ```txt
 # Bot kullanıcı adı
-name = AIzen
+name = AI-zen
 
 # Tripcode (opsiyonel, None olarak bırakabilirsiniz)
 tc = None
@@ -112,12 +120,27 @@ cf_clearance: [buraya cf_clearance'ı yapıştırın]
 
 ### Chat Odasında Kullanım
 
-Bot'u etiketleyerek soru sorun:
+**Bot'a Soru Sormak:**
 ```
-@AIzen merhaba nasılsın?
-@AIzen saat kaç?
-@AIzen bugün hava nasıl?
-@AIzen Python nedir?
+@AI-zen merhaba nasılsın?
+@AI-zen saat kaç?
+@AI-zen bugün hava nasıl?
+@AI-zen Python nedir?
+```
+
+**Komutlar:**
+```
+!yardım        - Yardım mesajını gösterir
+!saat          - Güncel Türkiye saati ve tarihini gösterir
+!unutbeni      - Sizinle olan konuşma geçmişini siler
+```
+
+**Owner Komutları (sadece owner):**
+```
+!stats         - Bot istatistiklerini gösterir
+!model [isim]  - AI modelini değiştirir
+!temp [0-2]    - Temperature ayarını değiştirir
+!clear @user   - Kullanıcının geçmişini temizler
 ```
 
 **Özellikler:**
@@ -125,7 +148,10 @@ Bot'u etiketleyerek soru sorun:
 - ✅ Güncel tarih ve saat bilgisini bilir
 - ✅ Her kullanıcı için konuşma geçmişi tutar
 - ✅ Türkçe ve İngilizce anlayıp cevap verir
+- ✅ Odaya katılanlara otomatik selam verir
+- ✅ "Sen kimsin?" gibi sorulara özel tanıtım yapar
 - ❌ DM (özel mesaj) kabul etmez
+- 🔒 Owner authentication (aizen kullanıcısı için şifre doğrulama)
 
 ### Bot'u Durdurma
 
@@ -139,10 +165,12 @@ Terminal'de `Ctrl+C` ile bot'u güvenli şekilde kapatabilirsiniz.
 
 ```python
 # Groq'ta mevcut ücretsiz modeller:
-self.model = "llama-3.1-8b-instant"      # Hızlı ve hafif (ÖNERİLEN)
-self.model = "llama-3.3-70b-versatile"   # Daha güçlü ama yavaş
+self.model = "llama-3.3-70b-versatile"   # Daha güçlü ve doğal (ÖNERİLEN)
+self.model = "llama-3.1-8b-instant"      # Hızlı ve hafif
 self.model = "mixtral-8x7b-32768"        # Uzun context window
 ```
+
+**Not:** Bot varsayılan olarak `llama-3.3-70b-versatile` kullanır (daha doğal cevaplar).
 
 ### AI Personality Değiştirme
 
@@ -238,7 +266,9 @@ GROQ_API_KEY=gsk_your-key-here
 ### "Error code: 400 - Model has been decommissioned" Hatası
 **Çözüm:** `modules/AIzen.py` içinde model adını güncelleyin:
 ```python
-self.model = "llama-3.1-8b-instant"  # Güncel model
+self.model = "llama-3.3-70b-versatile"  # Güncel önerilen model (70B)
+# veya
+self.model = "llama-3.1-8b-instant"     # Daha hızlı alternatif (8B)
 ```
 
 ### "Cookie geçersiz" / "认证错误" Hatası
@@ -297,8 +327,8 @@ Bu proje MIT lisansı altında lisanslanmıştır.
 ## 📜 Değişiklik Geçmişi
 
 ### v1.0 - Mevcut Versiyon
-- ✅ Groq API entegrasyonu (llama-3.1-8b-instant)
-- ✅ @AIzen etiketleme ile cevap verme
+- ✅ Groq API entegrasyonu (llama-3.3-70b-versatile)
+- ✅ @AI-zen etiketleme ile cevap verme
 - ✅ Gerçek zamanlı Türkiye saati ve tarih bilgisi
 - ✅ Kullanıcı başına konuşma geçmişi (max 10 mesaj)
 - ✅ 140 karakter limiti uyumu
