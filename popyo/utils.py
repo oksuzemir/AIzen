@@ -25,25 +25,116 @@ def talk_to_msg(msg, room):
     elif msg['type'] == 'message':
         if 'url' in msg:
             if 'to' in msg:
-                m = DirectURLMessage(msg['id'], msg['time'], Message_Type.dm_url, room.users.get(msg['from']['id'], None),
-                                    room.users.get(msg['to']['id'], None), msg['message'], msg['url'])
+                # Direct URL message için user kontrolü
+                from_user = room.users.get(msg['from']['id'], None)
+                to_user = room.users.get(msg['to']['id'], None)
+                
+                if from_user is None and 'from' in msg:
+                    user_data = msg['from']
+                    from_user = User(
+                        user_data['id'],
+                        user_data.get('name', 'misafir'),
+                        user_data.get('icon', 'setton'),
+                        user_data.get('tripcode', '无'),
+                        user_data.get('device', 'Unknown'),
+                        user_data.get('admin', False)
+                    )
+                    room.users[from_user.id] = from_user
+                    print(f"⚠️  Unknown user added to room: {from_user.name} (ID: {from_user.id})")
+                
+                m = DirectURLMessage(msg['id'], msg['time'], Message_Type.dm_url, from_user, to_user, msg['message'], msg['url'])
             else:
-                m = URLMessage(msg['id'], msg['time'], Message_Type.url, room.users.get(msg['from']['id'], None), msg['message'],
-                               msg['url'])
+                # URL message için user kontrolü
+                user_obj = room.users.get(msg['from']['id'], None)
+                if user_obj is None and 'from' in msg:
+                    user_data = msg['from']
+                    user_obj = User(
+                        user_data['id'],
+                        user_data.get('name', 'misafir'),
+                        user_data.get('icon', 'setton'),
+                        user_data.get('tripcode', '无'),
+                        user_data.get('device', 'Unknown'),
+                        user_data.get('admin', False)
+                    )
+                    room.users[user_obj.id] = user_obj
+                    print(f"⚠️  Unknown user added to room: {user_obj.name} (ID: {user_obj.id})")
+                
+                m = URLMessage(msg['id'], msg['time'], Message_Type.url, user_obj, msg['message'], msg['url'])
         else:
             if 'to' in msg:
-                m = DirectMessage(msg['id'], msg['time'], Message_Type.dm, room.users.get(msg['from']['id'], None),room.users.get(msg['to']['id'], None),
-                                  msg['message'])
+                # Direct message için user kontrolü
+                from_user = room.users.get(msg['from']['id'], None)
+                to_user = room.users.get(msg['to']['id'], None)
+                
+                if from_user is None and 'from' in msg:
+                    user_data = msg['from']
+                    from_user = User(
+                        user_data['id'],
+                        user_data.get('name', 'misafir'),
+                        user_data.get('icon', 'setton'),
+                        user_data.get('tripcode', '无'),
+                        user_data.get('device', 'Unknown'),
+                        user_data.get('admin', False)
+                    )
+                    room.users[from_user.id] = from_user
+                    print(f"⚠️  Unknown user added to room: {from_user.name} (ID: {from_user.id})")
+                
+                m = DirectMessage(msg['id'], msg['time'], Message_Type.dm, from_user, to_user, msg['message'])
 
             else:
-                m = Message(msg['id'], msg['time'], Message_Type.message, room.users.get(msg['from']['id'], None), msg['message'])
+                # User objesini al, yoksa mesajdan oluştur
+                user_obj = room.users.get(msg['from']['id'], None)
+                if user_obj is None and 'from' in msg:
+                    # User room'da değil, mesajdan bilgi al
+                    user_data = msg['from']
+                    user_obj = User(
+                        user_data['id'],
+                        user_data.get('name', 'misafir'),
+                        user_data.get('icon', 'setton'),
+                        user_data.get('tripcode', '无'),
+                        user_data.get('device', 'Unknown'),
+                        user_data.get('admin', False)
+                    )
+                    # Room'a ekle
+                    room.users[user_obj.id] = user_obj
+                    print(f"⚠️  Unknown user added to room: {user_obj.name} (ID: {user_obj.id})")
+                
+                m = Message(msg['id'], msg['time'], Message_Type.message, user_obj, msg['message'])
 
     elif msg['type'] == 'music':
-        m = MusicMessage(msg['id'], msg['time'], room.users.get(msg['from']['id'], None), msg['music']['name'],
+        user_obj = room.users.get(msg['from']['id'], None)
+        if user_obj is None and 'from' in msg:
+            user_data = msg['from']
+            user_obj = User(
+                user_data['id'],
+                user_data.get('name', 'misafir'),
+                user_data.get('icon', 'setton'),
+                user_data.get('tripcode', '无'),
+                user_data.get('device', 'Unknown'),
+                user_data.get('admin', False)
+            )
+            room.users[user_obj.id] = user_obj
+            print(f"⚠️  Unknown user added to room: {user_obj.name} (ID: {user_obj.id})")
+        
+        m = MusicMessage(msg['id'], msg['time'], user_obj, msg['music']['name'],
                         msg['music']['playURL'], msg['music']['shareURL'], msg['music']['playURL'], msg['music']['shareURL'])
 
     elif msg['type'] == 'me':
-        m = MeMessage(msg['id'], msg['time'], room.users.get(msg['from']['id'], None), msg['content'])
+        user_obj = room.users.get(msg['from']['id'], None)
+        if user_obj is None and 'from' in msg:
+            user_data = msg['from']
+            user_obj = User(
+                user_data['id'],
+                user_data.get('name', 'misafir'),
+                user_data.get('icon', 'setton'),
+                user_data.get('tripcode', '无'),
+                user_data.get('device', 'Unknown'),
+                user_data.get('admin', False)
+            )
+            room.users[user_obj.id] = user_obj
+            print(f"⚠️  Unknown user added to room: {user_obj.name} (ID: {user_obj.id})")
+        
+        m = MeMessage(msg['id'], msg['time'], user_obj, msg['content'])
 
     elif msg['type'] == 'new-host':
         m = NewHostMessage(msg['id'], msg['time'], room.users.get(msg['user']['id'], None))
@@ -52,7 +143,12 @@ def talk_to_msg(msg, room):
         m = LeaveMessage(msg['id'], msg['time'], room.users.get(msg['user']['id'], None))
 
     elif msg['type'] == 'join':
-        m = JoinMessage(msg['id'], msg['time'], User(msg['user']['id'], msg['user']['name'], msg['user']['icon'],
+        # Name boş gelirse default değer ata
+        user_name = msg['user'].get('name', '')
+        if not user_name or (isinstance(user_name, str) and not user_name.strip()):
+            user_name = "misafir"
+        
+        m = JoinMessage(msg['id'], msg['time'], User(msg['user']['id'], user_name, msg['user']['icon'],
                                                 msg['user']['tripcode'] if 'tripcode' in msg['user'] else "无",msg['user']['device'],
                                                 True if 'admin' in msg['user'].keys() and msg['user']['admin'] else False))
 

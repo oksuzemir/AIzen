@@ -99,9 +99,15 @@ def unload_module(name):
 
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
 async def handler(msg):
-    for k, v in modules.items():
-        # logger.debug(f'模块【{k}】处理消息')
-        loop.run_in_executor(executor, v.handler, msg)
+    try:
+        for k, v in modules.items():
+            # Her modülü paralel çalıştır ama exception'ları yakala
+            try:
+                loop.run_in_executor(executor, v.handler, msg)
+            except Exception as e:
+                logger.error(f"❌ Modül [{k}] mesaj işlerken hata: {str(e)[:100]}")
+    except Exception as e:
+        logger.error(f"❌ Handler genel hatası: {str(e)[:100]}")
 
 
 if __name__ == '__main__':

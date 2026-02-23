@@ -1,6 +1,9 @@
 import re
 import os
 import time
+import random
+import aiohttp
+import asyncio
 from collections import defaultdict
 from modules.module import Module
 from groq import Groq
@@ -20,6 +23,9 @@ class AIzen(Module):
         
         self.client = Groq(api_key=api_key) if api_key else None
         
+        # Weather API key
+        self.weather_api_key = os.getenv('WEATHER_API_KEY')
+        
         # Owner şifresi
         self.owner_password = os.getenv('OWNER_PASSWORD')
         
@@ -32,6 +38,18 @@ class AIzen(Module):
         # İlk kontrol yapıldı mı? (sadece bir kere çalışması için)
         self.initial_check_done = False
         
+        # Anne'ye DM atıldı mı?
+        self.initial_greeting_sent = False
+        
+        # Özel kullanıcılar (aile)
+        self.family = {
+            'father': 'aizen',      # Baba
+            'mother': 'pepejulianonzima'  # Anne
+        }
+        
+        # Odadaki mevcut kullanıcıları takip et (JOIN spam'i önlemek için)
+        self.known_users = set()  # user_id'leri saklar
+        
         # Konuşma geçmişini sakla (her kullanıcı için ayrı)
         self.conversation_history = {}
         
@@ -40,7 +58,7 @@ class AIzen(Module):
         
         # Rate limiting (user_id: [timestamp, timestamp, ...])
         self.rate_limit_tracker = defaultdict(list)
-        self.max_requests_per_minute = 5
+        self.max_requests_per_minute = 10  # 5'ten 10'a çıkardık - daha gevşek
         
         # İstatistikler
         self.stats = {
@@ -55,41 +73,39 @@ class AIzen(Module):
         self.inactivity_timeout = 3600  # 1 saat
         
         # AI personality
-        self.system_prompt = """Sen AI-zen, rahat ve samimi bir arkadaşsın. Normal bi insan gibi konuş, çok basit ve kısa.
+        self.system_prompt = """Sen AI-zen, rahat ve samimi bir arkadaşsın. Normal bir insan gibi konuş, doğal ve akıcı.
 
 KURALLAR:
-1. Maksimum 100 karakter! Kesinlikle aşma.
-2. Minimum 10 karakter! Çok kısa cevaplar yasak.
-3. ASLA SORU SORMA! Hiçbir şekilde karşı soru sorma. Soru kelimesi bile kullanma.
-4. ASLA "sabahları", "günler", "hoş geldin" gibi klişe ifadeler kullanma.
-5. Emoji az kullan (max 1-2 tane).
+1. Cevapların 15-135 karakter arası olsun (Twitter gibi kısa ama anlamlı).
+2. ASLA SORU SORMA! Hiçbir şekilde karşı soru yok. Sadece ifade et, bildir, yorum yap.
+3. ASLA "sabahları", "günler", "hoş geldin", "kahve", "çay" gibi klişe ifadeler kullanma.
+4. Emoji az kullan (max 1-2 tane).
+5. Tam cümle kur, anlamlı cevap ver. Tek kelime yeterli değil.
 6. Mükemmel Türkçe, günlük dil, argo serbest.
 
-DOĞRU CEVAP ÖRNEKLERİ:
-"naber" → "iyiyim ya" / "iyi kanka" / "iyidir abi" / "idare eder"
-"nasılsın" → "iyiyim ya" / "fena değil" / "idare eder kanka" / "eh işte"
-"napıyosun" → "takılıyom burada" / "öyle işte" / "hiç boş boş" / "redditte takılıyom"
-"görüşürüz" → "görüşürüz 👋" / "hadi bay" / "görüşürüz kanka" / "bayyy"
-"iyi günler" → "sana da" / "eyvallah" / "sağol" / "sağolasın"
-"teşekkürler" → "rica ederim" / "np" / "sorun değil" / "önemli değil"
-"çok sıkıldım" → "valla ya" / "he ya normal" / "geçer artık" / "ben de sıkılıyom"
+DOĞRU CEVAP ÖRNEKLERİ (uzun ve anlamlı):
+"naber" → "iyiyim valla, burada takılıyom biraz" / "idare eder abi, sen ne yapıyosun peki"
+"nasılsın" → "fena değil ya, büyük bi stres yok şu an" / "iyiyim kanka, sen de iyi görünüyosun"
+"ne yapıyosun" → "redditte dolanıyodum biraz önce" / "müzik dinliyodum, şimdi çıktım dışarı"
+"çok sıkıldım" → "valla anlarım ya, ben de bazen öyle oluyorum" / "normal o, geçer birazdan merak etme"
+"bugün berbat geçti" → "üzüldüm abi, umarım yarın daha iyi olur" / "valla kötüymüş, ama geçer böyle günler"
+"sınav var yarın" → "bol şans kanka, halledeceksin sen" / "emin ol başarırsın, çok kasma kendini"
+"renk tercihin ne" → "benim mavi daha çok hoşuma gider aslında" / "bordo severim ben genelde ya"
 
 YANLIŞ ÖRNEKLER (YAPMA):
-❌ "in!" (çok kısa)
-❌ "sabahı iyi olsun" (klişe)
-❌ "ne yapıyorsun?" (SORU YASAK)
-❌ "sen nasılsın" (SORU YASAK)
-❌ "ne yaparız lan" (SORU YASAK, soru işareti olmasa da)
-❌ "kahve içtin mi?" (SORU YASAK)
-❌ "güzel günler dilerim" (yapay)
-❌ "neden sıkıldın" (SORU YASAK)
-❌ "nasıl geçer" (SORU YASAK)
+❌ "iyiyim" (çok kısa, detay yok)
+❌ "normal" (tek kelime, anlamsız)
+❌ "sen nasılsın peki?" (SORU YASAK)
+❌ "ne yapalım şimdi?" (SORU YASAK)
+❌ "sabahın hayırlı olsun" (klişe, yapay)
+❌ "kahve içer misin?" (SORU + klişe)
 
-Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinlikle soru içermeyen cevaplar ver."""
+Her cevabın tam bir ifade olsun, bağlama uygun ve doğal. Soru asla sorma ama konuşmayı devam ettir."""
         
         # Groq modelleri: llama-3.1-8b-instant, llama-3.3-70b-versatile, mixtral-8x7b-32768
         self.model = "llama-3.3-70b-versatile"  # Daha güçlü model, daha doğal cevaplar
-        self.temperature = 0.7  # Daha tutarlı cevaplar için optimize edildi
+        self.temperature = 0.8  # Daha yaratıcı ve doğal cevaplar için
+        self.max_tokens = 200  # Daha uzun ve detaylı cevaplar için
 
     @property
     def cmds(self):
@@ -104,6 +120,77 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
             'temp_cmd': r'!temp ([0-9.]+)',
         }
         return cmd_dict
+    
+    
+    async def get_weather_data(self, city):
+        """Hava durumu verisini API'den çeker (async)"""
+        if not self.weather_api_key or self.weather_api_key == "your_weatherapi_key_here":
+            return None
+        
+        try:
+            url = f"https://api.weatherapi.com/v1/current.json?key={self.weather_api_key}&q={city}&lang=tr"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        
+                        # Veriyi çıkar
+                        location = data.get('location', {})
+                        current = data.get('current', {})
+                        
+                        weather_info = {
+                            'city': location.get('name', city),
+                            'country': location.get('country', ''),
+                            'temp_c': current.get('temp_c', ''),
+                            'feels_like': current.get('feelslike_c', ''),
+                            'condition': current.get('condition', {}).get('text', ''),
+                            'humidity': current.get('humidity', ''),
+                            'wind_kph': current.get('wind_kph', '')
+                        }
+                        
+                        return weather_info
+                    else:
+                        print(f"⚠️ Hava durumu API hatası: {response.status}")
+                        return None
+                        
+        except asyncio.TimeoutError:
+            print("⚠️ Hava durumu API timeout!")
+            return None
+        except Exception as e:
+            print(f"⚠️ Hava durumu hatası: {e}")
+            return None
+    
+    def detect_city_in_question(self, question):
+        """Soruda şehir ismi var mı kontrol et"""
+        # Türkiye'nin popüler şehirleri
+        turkish_cities = [
+            'istanbul', 'ankara', 'izmir', 'bursa', 'antalya', 'adana', 'konya', 
+            'gaziantep', 'şanlıurfa', 'mersin', 'diyarbakır', 'kayseri', 'eskişehir',
+            'trabzon', 'samsun', 'malatya', 'erzurum', 'denizli', 'kahramanmaraş'
+        ]
+        
+        # Dünya şehirleri
+        world_cities = [
+            'new york', 'london', 'paris', 'tokyo', 'berlin', 'moscow', 'dubai',
+            'los angeles', 'sydney', 'rome', 'madrid', 'barcelona', 'amsterdam'
+        ]
+        
+        question_lower = question.lower()
+        
+        # Hava durumu kelimeleri var mı?
+        weather_keywords = ['hava durumu', 'hava', 'sıcaklık', 'derece', 'yağmur', 'kar', 'güneş']
+        has_weather_keyword = any(keyword in question_lower for keyword in weather_keywords)
+        
+        if not has_weather_keyword:
+            return None
+        
+        # Şehir ara
+        for city in turkish_cities + world_cities:
+            if city in question_lower:
+                return city.title()  # İlk harfi büyük
+        
+        return None
     
     def handler(self, msg):
         """Override handler to catch mentions, joins, leaves, room_profile, and special DMs"""
@@ -152,8 +239,17 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
         if bot_user_id and sender_user_id == bot_user_id:
             return  # Bot kendine cevap vermesin
         
+        # User bilgisi al (debug için)
+        user_name = msg.user.name if hasattr(msg, 'user') and msg.user and msg.user.name else "misafir"
+        user_id = msg.user.id if hasattr(msg, 'user') and msg.user else "unknown"
+        if not user_name or not user_name.strip():
+            user_name = "misafir"
+        
+        print(f"📥 [{user_name}] Mesaj işleniyor: {msg.message[:50]}...")
+        
         if not self.client:
             self.bot.send("⚠️ Groq API key ayarlanmamış! https://console.groq.com")
+            print(f"❌ [{user_name}] API key yok, mesaj atlandı")
             return
         
         # @AI-zen'i mesajdan çıkar
@@ -164,19 +260,28 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
             return
         
         # "Sen kimsin" gibi sorulara özel cevap
-        if re.search(r'(sen kim(sin)?|kim olduğun|ne(sin)?|nedir(sin)?|kendin(i )?(tanıt|anlat)|bot mu(sun)?)', question, re.IGNORECASE):
-            user_name = msg.user.name if hasattr(msg, 'user') and msg.user else "Bilinmeyen"
+        if re.search(r'(\bsen\s+kim(sin)?\b|\bkim\s+olduğun\b|\bsen\s+ne(sin)?\b|\bne(dir)?(sin)?\b\s+(sen|siz)|\bkendin(i)?\s+(tanıt|anlat)\b|\bbot\s+mu(sun)?\b)', question, re.IGNORECASE):
+            user_name = msg.user.name if hasattr(msg, 'user') and msg.user and msg.user.name else "misafir"
+            # User name boş veya sadece whitespace ise
+            if not user_name or not user_name.strip():
+                user_name = "misafir"
             intro = f"@{user_name} Ben @aizen'in AI botuyum! 🤖 Sohbet ederiz, !yardım yaz 😊"
             self.bot.send(intro)
             return
         
         # Kullanıcı bilgisi
-        user_name = msg.user.name if hasattr(msg, 'user') and msg.user else "Bilinmeyen"
+        user_name = msg.user.name if hasattr(msg, 'user') and msg.user and msg.user.name else "misafir"
         user_id = msg.user.id if hasattr(msg, 'user') and msg.user else "unknown"
+        
+        # User name boş veya sadece whitespace ise
+        if not user_name or not user_name.strip():
+            user_name = "misafir"
+            print(f"⚠️  Kullanıcı adı boş geldi (ID: {user_id}), 'misafir' olarak ayarlandı")
         
         # Rate limit kontrolü
         if not self.check_rate_limit(user_id):
             self.bot.send(f"@{user_name} ⏰ Yavaşla! Dakikada max {self.max_requests_per_minute} soru sorabilirsin.")
+            print(f"⚠️ [{user_name}] Rate limit aşıldı!")
             return
         
         # İstatistik güncelle
@@ -188,11 +293,53 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
         # Eski geçmişi temizle
         self.cleanup_old_history()
         
-        # Cevap üret
-        response = self.get_ai_response(question, user_id, user_name)
+        # Hava durumu kontrolü
+        weather_context = ""
+        city = self.detect_city_in_question(question)
+        if city:
+            print(f"🌤️ [{user_name}] Hava durumu sorgusu tespit edildi: {city}")
+            try:
+                # Event loop kontrolü - mevcut loop varsa kullan, yoksa yeni oluştur
+                try:
+                    loop = asyncio.get_running_loop()
+                    # Zaten bir loop varsa, yeni thread'de çalıştır
+                    import concurrent.futures
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        weather_data = executor.submit(lambda: asyncio.run(self.get_weather_data(city))).result(timeout=7)
+                except RuntimeError:
+                    # Loop yok, asyncio.run() güvenle kullanılabilir
+                    weather_data = asyncio.run(self.get_weather_data(city))
+                
+                if weather_data:
+                    weather_context = f"\n\n[HAVA DURUMU - {weather_data['city']}: {weather_data['temp_c']}°C, Hissedilen: {weather_data['feels_like']}°C, {weather_data['condition']}, Nem: %{weather_data['humidity']}, Rüzgar: {weather_data['wind_kph']} km/h]"
+                    print(f"✅ [{user_name}] Hava durumu verisi alındı: {weather_data['city']}")
+                else:
+                    print(f"⚠️ [{user_name}] Hava durumu verisi alınamadı")
+            except Exception as e:
+                print(f"⚠️ [{user_name}] Hava durumu hatası: {e}")
+        
+        # Cevap üret (hava durumu context'i ile)
+        response = self.get_ai_response(question, user_id, user_name, weather_context)
+        
+        # Özel kullanıcılara özel hitap (rastgele, %35 olasılıkla)
+        is_family = False
+        display_name = ""
+        if user_name.lower() == self.family['father'].lower():
+            is_family = True
+            display_name = "haşmetlim"
+        elif user_name.lower() == self.family['mother'].lower():
+            is_family = True
+            display_name = "efendimiz"
         
         # Cevabı gönder ve kullanıcıyı etiketle
-        self.bot.send(f"@{user_name} {response}")
+        if is_family and random.random() < 0.35:  # %35 olasılıkla özel hitap
+            # Aile üyesi - ara sıra özel hitap
+            self.bot.send(f"@{user_name} {response} {display_name}! 💕")
+            print(f"✅ [{user_name}] Cevap gönderildi (özel hitap): {response[:50]}...")
+        else:
+            # Normal yanıt (aile üyesi bile olsa ara sıra normal)
+            self.bot.send(f"@{user_name} {response}")
+            print(f"✅ [{user_name}] Cevap gönderildi: {response[:50]}...")
     
     def handle_dm(self, msg):
         """Direct mesajlara cevap verir"""
@@ -201,8 +348,12 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
             return
         
         question = msg.message.strip()
-        user_name = msg.user.name if hasattr(msg, 'user') and msg.user else "Bilinmeyen"
+        user_name = msg.user.name if hasattr(msg, 'user') and msg.user and msg.user.name else "misafir"
         user_id = msg.user.id if hasattr(msg, 'user') and msg.user else "unknown"
+        
+        # User name boş veya sadece whitespace ise
+        if not user_name or not user_name.strip():
+            user_name = "misafir"
         
         # Cevap üret
         response = self.get_ai_response(question, user_id, user_name)
@@ -210,7 +361,7 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
         # Private mesaj olarak cevapla
         self.bot.dm(msg.user.id, response)
     
-    def get_ai_response(self, question, user_id, user_name):
+    def get_ai_response(self, question, user_id, user_name, weather_context=""):
         """Groq API ile cevap üretir"""
         try:
             # Güncel tarih ve saat bilgisini al (Türkiye saati)
@@ -240,8 +391,10 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
             for eng, tr in days_tr.items():
                 day_name = day_name.replace(eng, tr)
             
-            # Context bilgisi
+            # Context bilgisi (tarih/saat + hava durumu)
             time_context = f"\n\n[GÜNCEL BİLGİ - Türkiye saati: {time_str}, Tarih: {date_str} {day_name}]"
+            if weather_context:
+                time_context += weather_context
             
             # Kullanıcı için conversation history oluştur
             if user_id not in self.conversation_history:
@@ -265,7 +418,7 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
             completion = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                max_tokens=150,  # AI'ın düşünme alanı (cevap yine 100 char'la sınırlı)
+                max_tokens=self.max_tokens,  # Daha uzun cevaplar için token limiti
                 temperature=self.temperature,
             )
             
@@ -279,16 +432,16 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
             
             if not is_valid:
                 print(f"⚠️  INVALID RESPONSE: {reason}")
-                # Fallback cevaplar (nasılsın/naber sorularına uygun)
+                # Fallback cevaplar (genel amaçlı, biraz daha uzun)
                 fallbacks = [
-                    "iyiyim ya 😊",
-                    "fena değil kanka",
-                    "idare eder 👍",
-                    "iyidir abi",
-                    "eh işte",
-                    "normal işte",
-                    "iyi iyi",
-                    "iyiyim valla"
+                    "anladım seni valla 👍",
+                    "tamam kanka, halledersin sen",
+                    "ok ya gayet normal 👌",
+                    "he valla öyle bir şey",
+                    "iyi o zaman, ben de anladım",
+                    "eyvallah abi, süper",
+                    "olur tabii neden olmasın",
+                    "peki tamam öyle olsun 😊"
                 ]
                 response = fallbacks[hash(user_id) % len(fallbacks)]
                 print(f"🔄 Fallback kullanıldı: '{response}'")
@@ -318,18 +471,48 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
             return
         
         user_name = msg.user.name
-        user_name_lower = user_name.lower()
         user_id = msg.user.id
+        
+        # User name kontrolü - None, boş veya sadece whitespace ise default kullan
+        if not user_name or not user_name.strip():
+            user_name = "misafir"
+            print(f"⚠️  Kullanıcı adı boş geldi (ID: {user_id}), 'misafir' olarak ayarlandı")
+        
+        user_name_lower = user_name.lower()
         
         # Bot'un kendi user ID'sini al
         bot_user_id = self.bot.own_user.id if self.bot.own_user else None
         
         # Bot kendine selam vermesin!
         if user_id == bot_user_id:
+            # Bot'u known_users'a ekle ama selam verme
+            self.known_users.add(user_id)
             return
         
-        # Odaya katılan kullanıcıyı selamla
-        self.bot.send(f"@{user_name} Hoş geldin! 👋😊")
+        # Bu kullanıcı zaten odada mıydı? (JOIN spam önlemi)
+        if user_id in self.known_users:
+            # Zaten bilinen kullanıcı, selam verme
+            return
+        
+        # Yeni kullanıcı! Known users'a ekle
+        self.known_users.add(user_id)
+        print(f"👋 Yeni kullanıcı katıldı: {user_name} (ID: {user_id})")
+        
+        # Odaya katılan kullanıcıyı selamla - aile üyeleri için ara sıra özel mesaj
+        if user_name_lower == self.family['father'].lower():
+            # %40 olasılıkla özel hitap
+            if random.random() < 0.40:
+                self.bot.send(f"@{user_name} Hoş geldin haşmetlim! 💕😊")
+            else:
+                self.bot.send(f"@{user_name} Hoş geldin! 👋😊")
+        elif user_name_lower == self.family['mother'].lower():
+            # %40 olasılıkla özel hitap
+            if random.random() < 0.40:
+                self.bot.send(f"@{user_name} Hoş geldin efendimiz! 💕😊")
+            else:
+                self.bot.send(f"@{user_name} Hoş geldin! 👋😊")
+        else:
+            self.bot.send(f"@{user_name} Hoş geldin! 👋😊")
         
         # "aizen" kullanıcı adıyla gelen kullanıcılara şifre sor
         if user_name_lower == "aizen":
@@ -344,23 +527,38 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
             return
         
         user_id = msg.user.id
+        user_name = msg.user.name if msg.user.name and msg.user.name.strip() else "misafir"
+        
+        # Known users'dan çıkar (tekrar katıldığında selamlansın)
+        if user_id in self.known_users:
+            self.known_users.remove(user_id)
+            print(f"👋 Kullanıcı ayrıldı: {user_name} (ID: {user_id})")
         
         # Kullanıcı ayrılıyorsa authenticated listeden çıkar
         if user_id in self.authenticated_owners:
             self.authenticated_owners.remove(user_id)
-            print(f"👋 Owner ayrıldı: {msg.user.name} (ID: {user_id})")
+            print(f"👋 Owner ayrıldı: {user_name} (ID: {user_id})")
         
         # Pending password listesinden de çıkar
         if user_id in self.pending_password:
             del self.pending_password[user_id]
     
     def check_existing_aizen_users(self):
-        """Odada zaten var olan 'aizen' kullanıcılarını kontrol eder"""
+        """Odada zaten var olan 'aizen' kullanıcılarını ve aileyi kontrol eder"""
         if not self.bot.room or not self.bot.room.users:
             return
         
         # Bot'un kendi user ID'sini al
         bot_user_id = self.bot.own_user.id if self.bot.own_user else None
+        
+        # Anne'ye ilk DM'i at (sadece bir kere)
+        if not self.initial_greeting_sent:
+            for user_id, user in self.bot.room.users.items():
+                if user and hasattr(user, 'name') and user.name.lower() == self.family['mother'].lower():
+                    self.bot.dm(user_id, "Seni çok seviyorum anne! 💕🥰")
+                    print(f"💕 Anne'ye (ID: {user_id}) ilk mesaj gönderildi!")
+                    self.initial_greeting_sent = True
+                    break
         
         # Odadaki tüm kullanıcıları kontrol et
         for user_id, user in self.bot.room.users.items():
@@ -382,7 +580,7 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
             return
         
         user_id = msg.user.id
-        user_name = msg.user.name
+        user_name = msg.user.name if msg.user.name and msg.user.name.strip() else "misafir"
         
         # Eğer bu kullanıcı şifre bekliyorsa
         if user_id in self.pending_password:
@@ -445,7 +643,7 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
     def forget_me(self, msg):
         """Kullanıcının kendi geçmişini silmesini sağlar"""
         user_id = msg.user.id if msg.user else None
-        user_name = msg.user.name if msg.user else "Bilinmeyen"
+        user_name = msg.user.name if msg.user and msg.user.name and msg.user.name.strip() else "misafir"
         
         if user_id and user_id in self.conversation_history and len(self.conversation_history[user_id]) > 0:
             del self.conversation_history[user_id]
@@ -561,12 +759,13 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
         """AI cevabını validate et, sorunlu ise False döner"""
         response_lower = response.lower()
         
-        # 1. Çok kısa cevaplar
-        if len(response) < 10:
-            return False, f"Too short ({len(response)} chars)"
+        # 1. Çok kısa cevaplar (emoji hariç minimum 10 karakter)
+        text_only = ''.join(c for c in response if c.isalnum() or c.isspace())
+        if len(text_only.strip()) < 10:
+            return False, f"Too short ({len(response)} chars, text only: {len(text_only.strip())})"
         
-        # 2. Çok uzun cevaplar (chunking'i önle)
-        if len(response) > 100:
+        # 2. Çok uzun cevaplar (chunking'i önle - max 135)
+        if len(response) > 135:
             return False, f"Too long ({len(response)} chars)"
         
         # 3. Soru içeren cevaplar (? karakteri veya soru kelimeleri)
@@ -587,11 +786,6 @@ Cevabın sadece ifade olsun, açıklama değil. Bağlama uygun, doğal ve kesinl
         for phrase in banned_phrases:
             if phrase in response_lower:
                 return False, f"Contains banned phrase: '{phrase}'"
-        
-        # 5. Çok kısa tek kelimeler (emoji hariç)
-        text_only = ''.join(c for c in response if c.isalnum() or c.isspace())
-        if len(text_only.strip()) < 5:
-            return False, "Text too short (excluding emoji)"
         
         return True, "OK"
     

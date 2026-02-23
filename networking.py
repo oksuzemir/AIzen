@@ -375,10 +375,17 @@ class Connection:
 
                                     if msg.message and msg.message != 'keep':
                                         user = getattr(msg, 'user', getattr(msg, 'to', '系统消息'))
-                                        info = f"{user} | {msg.message}"
+                                        
+                                        # Terminal log için user string'i
+                                        if user and type(user) is not str:
+                                            user_str = f"@{user.name}[{user.tc}]"
+                                        else:
+                                            user_str = str(user) if user else "Unknown"
+                                        
+                                        info = f"{user_str} | {msg.message}"
                                         self.info(info)
                                         
-                                        # Log kaydetme - user None olabilir
+                                        # CSV log kaydetme
                                         if user and type(user) is not str:
                                             userInfo = user.name + ',' + user.tc
                                         else:
