@@ -103,7 +103,7 @@ async def handler(msg):
         for k, v in modules.items():
             # Her modülü paralel çalıştır ama exception'ları yakala
             try:
-                loop.run_in_executor(executor, v.handler, msg)
+                await loop.run_in_executor(executor, v.handler, msg)
             except Exception as e:
                 logger.error(f"❌ Modül [{k}] mesaj işlerken hata: {str(e)[:100]}")
     except Exception as e:

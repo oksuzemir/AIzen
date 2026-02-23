@@ -8,7 +8,7 @@ tc = None
 avatar = setton
 
 # 房间ID (从房间URL获取，例如：https://drrr.com/room/6JjYq34S35)
-roomID = ouRZwPX8Vn
+roomID = odX3IxzZRG
 
 # 用户代理 (Desktop, Mobile, Bot, Tv, Tablet)
 agent = Bot

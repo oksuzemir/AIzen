@@ -393,7 +393,7 @@ class Connection:
                                         
                                         await self.write('logs', userInfo + ',' + msg.message.replace('\n', '\\n').replace(',', '，'), 'csv')
 
-                                    if msg.type in [popyo.Message_Type.message, popyo.Message_Type.me, popyo.Message_Type.dm]:
+                                    if msg.type in [popyo.Message_Type.message, popyo.Message_Type.me, popyo.Message_Type.dm, popyo.Message_Type.url, popyo.Message_Type.dm_url]:
                                         await self.msg_cb(msg)
 
                                     elif msg.type == popyo.Message_Type.join:
@@ -507,29 +507,29 @@ class Connection:
         while self.room_connected:
             try:
                 out_msg = await self.sendQ.get()
-                type = out_msg.type
+                msg_type = out_msg.type
 
                 if self.room_connected:
                     data = None
-                    if type == popyo.Outgoing_Message_Type.message:
+                    if msg_type == popyo.Outgoing_Message_Type.message:
                         data = {'message': out_msg.msg}
-                    elif type == popyo.Outgoing_Message_Type.dm:
+                    elif msg_type == popyo.Outgoing_Message_Type.dm:
                         data = {'message': out_msg.msg,'to': out_msg.receiver}
-                    elif type == popyo.Outgoing_Message_Type.url:
+                    elif msg_type == popyo.Outgoing_Message_Type.url:
                         data = {'message': out_msg.msg, 'url': out_msg.url}
-                    elif type == popyo.Outgoing_Message_Type.dm_url:
+                    elif msg_type == popyo.Outgoing_Message_Type.dm_url:
                         data = {'message': out_msg.msg, 'url': out_msg.url, 'to': out_msg.receiver}
-                    elif type == popyo.Outgoing_Message_Type.music:
+                    elif msg_type == popyo.Outgoing_Message_Type.music:
                         data = {'music': 'music', 'name': out_msg.name, 'url': out_msg.url}
-                    elif type == popyo.Outgoing_Message_Type.handover_host:
+                    elif msg_type == popyo.Outgoing_Message_Type.handover_host:
                         data = {'new_host': out_msg.receiver}
-                    elif type == popyo.Outgoing_Message_Type.kick:
+                    elif msg_type == popyo.Outgoing_Message_Type.kick:
                         data = {'kick': out_msg.receiver}
-                    elif type == popyo.Outgoing_Message_Type.ban:
+                    elif msg_type == popyo.Outgoing_Message_Type.ban:
                         data = {'report_and_ban_user': out_msg.receiver}
-                    elif type == popyo.Outgoing_Message_Type.change_title:
+                    elif msg_type == popyo.Outgoing_Message_Type.change_title:
                         data = {'room_name': out_msg.title}
-                    elif type == popyo.Outgoing_Message_Type.change_description:
+                    elif msg_type == popyo.Outgoing_Message_Type.change_description:
                         data = {'room_description': out_msg.description}
 
                     t1 = time.time()

@@ -1,12 +1,13 @@
 import re
-from abc import ABCMeta, abstractmethod, abstractproperty
+from abc import ABCMeta, abstractmethod
 
 class Module(metaclass=ABCMeta):
     def __init__(self, bot):
         self.bot = bot
         self.on = True
 
-    @abstractproperty
+    @property
+    @abstractmethod
     def cmds(self):
         pass
 
@@ -21,6 +22,8 @@ class Module(metaclass=ABCMeta):
         if self.on:
             for name, reg in self.cmds.items():
                 pattern = re.compile(reg)
-                if re.findall(pattern, msg.message):
+                match = re.search(pattern, msg.message)
+                if match:
+                    msg.groups = match.groups()
                     getattr(self, name)(msg)
                     break
