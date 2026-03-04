@@ -171,7 +171,8 @@ def talk_to_msg(msg, room):
         m = SystemMessage(msg['id'], msg['time'], msg['message'])
 
     elif msg['type'] == 'room-profile':
-        m = RoomProfileMessage(msg['id'], msg['time'], room.users[room.host_id])
+        host_user = room.users.get(room.host_id, None)
+        m = RoomProfileMessage(msg['id'], msg['time'], host_user)
 
     elif msg['type'] == 'new-description':
         m = NewDescMessage(msg['id'], msg['time'], room.users.get(msg['from']['id'], None), msg['description'])

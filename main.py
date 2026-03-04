@@ -82,15 +82,25 @@ def load_module(name, bot):
 
 def unload_module(name):
     try:
-        modules[name].unload()
-        modules[name].cancel_all_event_loops()
+        mod = modules.get(name)
+        if mod is None:
+            logger.error(f'模块【{name}】未加载')
+            return
+        
+        # Güvenli cleanup - metod varsa çağır
+        if hasattr(mod, 'unload'):
+            mod.unload()
+        if hasattr(mod, 'cancel_all_event_loops'):
+            mod.cancel_all_event_loops()
+        if hasattr(mod, '_executor'):
+            mod._executor.shutdown(wait=False)
 
         del modules[name]
-        del sys.modules[mods_dir + '.' + name]
-        del sys.modules[mods_dir + '.' + name + '.' + name]
-        for mod in list(sys.modules.keys()):
-            if mod.startswith(mods_dir + '.' + name ):
-                del sys.modules[mod]
+        # sys.modules'dan modülü temizle
+        mod_prefix = mods_dir + '.' + name
+        for mod_key in list(sys.modules.keys()):
+            if mod_key.startswith(mod_prefix):
+                del sys.modules[mod_key]
 
     except KeyError:
         logger.error(f'模块【{name}】未加载')
@@ -98,14 +108,20 @@ def unload_module(name):
         logger.error(traceback.format_exc())
 
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
+
+async def _run_module_handler(k, v, msg):
+    """Tek bir modülün handler'ını çalıştır (arka planda)"""
+    try:
+        await loop.run_in_executor(executor, v.handler, msg)
+    except Exception as e:
+        logger.error(f"❌ Modül [{k}] mesaj işlerken hata: {str(e)[:100]}")
+
 async def handler(msg):
     try:
         for k, v in modules.items():
-            # Her modülü paralel çalıştır ama exception'ları yakala
-            try:
-                await loop.run_in_executor(executor, v.handler, msg)
-            except Exception as e:
-                logger.error(f"❌ Modül [{k}] mesaj işlerken hata: {str(e)[:100]}")
+            # Her mesajı arka planda (fire-and-forget) işle
+            # Böylece bir kullanıcının cevabı beklenirken diğerleri bloklanmaz
+            asyncio.create_task(_run_module_handler(k, v, msg))
     except Exception as e:
         logger.error(f"❌ Handler genel hatası: {str(e)[:100]}")
 

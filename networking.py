@@ -534,8 +534,10 @@ class Connection:
 
                     t1 = time.time()
                     await self.send_post(data)
-                    if t1 - t2 < self.throttle or not self.sendQ.empty():
-                        await asyncio.sleep(self.throttle - t1 + t2)
+                    elapsed = t1 - t2
+                    if elapsed < self.throttle or not self.sendQ.empty():
+                        sleep_time = max(0, self.throttle - elapsed)
+                        await asyncio.sleep(sleep_time)
                     t2 = time.time()
             except Exception:
                 self.error('消息发送失败')
@@ -545,24 +547,59 @@ class Connection:
         for msg in msgs:
             await self.sendQ.put(msg)
 
+    def _smart_chunk(self, msg, limit=None):
+        """Mesajı kelime sınırlarında böler (kelimeleri ortadan kesmez)"""
+        if limit is None:
+            limit = self.char_limit
+        if len(msg) <= limit:
+            return [msg]
+        
+        chunks = []
+        while msg:
+            if len(msg) <= limit:
+                chunks.append(msg)
+                break
+            
+            # Limitte veya öncesinde bir boşluk/satır sonu ara
+            split_at = limit
+            # Önce newline'a bak
+            nl_pos = msg.rfind('\n', 0, limit)
+            if nl_pos > limit // 3:  # En az 1/3'ünden sonra olsun
+                split_at = nl_pos + 1
+            else:
+                # Boşluktan böl
+                space_pos = msg.rfind(' ', 0, limit)
+                if space_pos > limit // 3:
+                    split_at = space_pos + 1
+                # Boşluk/newline bulunamazsa mecburen hard-cut
+            
+            chunks.append(msg[:split_at].rstrip())
+            msg = msg[split_at:].lstrip()
+        
+        return [c for c in chunks if c]  # Boş chunk'ları filtrele
+
     def send(self, msg):
-        chunked = [msg[i:i + self.char_limit] for i in range(0, len(msg), self.char_limit)]
+        chunked = self._smart_chunk(msg)
         msgs = [popyo.OutgoingMessage(chunk) for chunk in chunked]
         asyncio.run_coroutine_threadsafe(self.putQ(msgs), self.loop)
 
     def dm(self, receiver, msg):
-        chunked = [msg[i:i + self.char_limit] for i in range(0, len(msg), self.char_limit)]
+        chunked = self._smart_chunk(msg)
         msgs = [popyo.OutgoingDirectMessage(chunk, receiver) for chunk in chunked]
         asyncio.run_coroutine_threadsafe(self.putQ(msgs), self.loop)
 
     def send_url(self, msg, url):
-        chunked = [msg[i : i + self.char_limit] for i in range(0, len(msg), self.char_limit)]
+        if not msg:
+            msg = url  # Mesaj boşsa URL'yi mesaj olarak kullan
+        chunked = self._smart_chunk(msg)
         msgs = [popyo.OutgoingMessage(chunk) for chunk in chunked[:-1]]
         msgs.append(popyo.OutgoingUrlMessage(chunked[-1], url))
         asyncio.run_coroutine_threadsafe(self.putQ(msgs), self.loop)
 
     def dm_url(self, receiver, msg, url):
-        chunked = [msg[i:i + self.char_limit] for i in range(0, len(msg), self.char_limit)]
+        if not msg:
+            msg = url  # Mesaj boşsa URL'yi mesaj olarak kullan
+        chunked = self._smart_chunk(msg)
         msgs = [popyo.OutgoingDirectMessage(chunk, receiver) for chunk in chunked[:-1] ]
         msgs.append(popyo.OutgoingDmUrl(chunked[-1], receiver, url))
         asyncio.run_coroutine_threadsafe(self.putQ(msgs), self.loop)

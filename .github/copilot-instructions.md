@@ -2,17 +2,20 @@
 
 ## Project Overview
 
-AI-zen is an AI-powered chatbot for drrr.com anonymous chat platform. It uses Groq's free LLM API (llama-3.3-70b-versatile) to respond when tagged with @AI-zen in chat rooms.
+AI-zen is an AI-powered chatbot for drrr.com anonymous chat platform. It uses Google Gemini 2.5 Flash (primary, free) with multi-key rotation, or Groq (fallback, free) to respond when tagged with @AI-zen in chat rooms.
 
 **Key Facts:**
 - Bot Name: AI-zen (with hyphen)
 - Owner Username: aizen (without hyphen)
 - Language: Python 3.12+
-- AI Provider: Groq (free tier)
-- Model: llama-3.3-70b-versatile (70B parameters, more powerful)
+- AI Provider: Google Gemini (primary, free) / Groq (fallback, free)
+- Primary Model: gemini-2.5-flash (thinking model, thinking_budget=256)
+- Fallback Model: deepseek-r1-distill-llama-70b-specdec (Groq)
 - Target Platform: drrr.com
 - Primary Users: Turkish and English speakers
-- Character Limit: 140 characters per message (Twitter-like)
+- Character Limit: 140 characters per message (bot targets max 120 chars)
+- Personality: Edgy, sassy, street-smart Turkish personality (piç ama sevimli)
+- Family System: father=aizen, sister=Days
 
 ## Core Technologies
 
@@ -22,14 +25,19 @@ aiohttp==3.10.11        # Async HTTP operations
 aiofiles                # Async file operations
 curl_cffi==0.7.3        # HTTP requests with Cloudflare bypass
 groq==1.0.0             # Groq AI API client
+google-genai            # Google Gemini AI client
 python-dotenv           # Environment variable management
 ```
 
 ### Architecture
 - **Async/Await**: All network operations are asynchronous
+- **Parallel Processing**: `asyncio.create_task()` for fire-and-forget message handling (concurrent user responses)
 - **Event Loop**: Uses WindowsSelectorEventLoopPolicy for Windows compatibility
+- **ThreadPoolExecutor**: 8 workers for blocking operations
 - **Modular System**: Plugin-based module loading from `modules/` directory
 - **Cookie Auth**: Uses drrr-session-1 and cf_clearance cookies
+- **Multi API Key Rotation**: Up to 10 Gemini API keys with round-robin + rate-limit-aware rotation
+- **Dual Context System**: Per-user conversation history + room-wide chat awareness
 
 ## File Structure & Responsibilities
 
@@ -41,32 +49,43 @@ python-dotenv           # Environment variable management
 - Sets up Windows event loop policy
 - Dynamically loads modules from `modules/` directory
 - Creates Connection instance and starts bot
+- **Parallel Processing**: Uses `asyncio.create_task()` for fire-and-forget message handling
+- **ThreadPoolExecutor**: 8 workers for concurrent module handler execution
 
 #### `networking.py`
 - Manages connection to drrr.com
 - Handles login, room joining, message polling
 - Implements message queue with throttling (1.5s default)
+- **Smart Chunking**: Auto-chunks messages at 140 char limit with intelligent break points
 - **Important**: Proxy is disabled (`proxies = None`) by default
 - Sends messages via async POST requests
 - Cookie management and session handling
 
 #### `modules/AIzen.py`
-- Main AI chatbot logic
+- Main AI chatbot logic (~3300+ lines)
 - Responds to @AI-zen mentions in chat (NOT to DMs)
-- Uses Groq API with llama-3.3-70b-versatile model (70B params)
-- Maintains per-user conversation history (max 10 messages)
+- **Primary AI**: Google Gemini 2.5 Flash (thinking model) with multi-key rotation
+- **Fallback AI**: Groq with deepseek-r1-distill-llama-70b-specdec
+- **Multi API Key Rotation**: Supports up to 10 Gemini keys (GEMINI_API_KEY, _2, ..._10) with round-robin + rate-limit-aware rotation (8 RPM per key safety margin)
+- **Per-User Conversation History**: Max 25 message pairs (50 entries)
+- **Room-Wide Chat Awareness**: Last 30 messages from all users as cross-user context
 - Injects real-time context (Turkish timezone, date, time)
-- System prompt emphasizes natural, casual conversation (<100 chars)
+- **Personality**: Edgy, sassy, street-smart Turkish personality. Swears casually, sharp humor, max 120 chars
+- **Family System**: father=aizen ("baba" hitap), sister=Days ("abla" hitap)
 - **Owner Authentication**: Verifies "aizen" username with password (OWNER_PASSWORD in .env)
-- **Rate Limiting**: 5 requests per minute per user
+- **Rate Limiting**: 10 requests per minute per user
 - **Auto-Cleanup**: Removes inactive user histories after 1 hour
 - **Statistics Tracking**: Total messages, unique users, uptime
 - **Welcome Messages**: Greets users joining the room automatically
 - **Self-Message Prevention**: Ignores own messages to prevent infinite loops
+- **Double @username Prevention**: Strips @username from AI response if AI includes it
+- **Sender Recognition**: Adds `[Yazan: @username]` prefix so AI knows who's talking
+- **Language Purity**: Turkish-only rule enforced in system prompt (DİL KURALI)
 - **Commands**: !yardım, !saat, !unutbeni (user) + !stats, !model, !temp, !clear (owner)
+- **Special Features**: Film search (TMDB), weather, currency, dice, coin flip, math, Wikipedia
 - **Response Validation**: validate_response() checks all AI outputs
 - **Fallback System**: 8 fallback responses for invalid AI outputs
-- **Question Detection**: Rejects responses containing question words (even without ?)
+- **ThinkingConfig**: thinking_budget=256, max_output_tokens=1024
 
 #### `modules/module.py`
 - Base class for all modules
@@ -150,7 +169,7 @@ question_with_context = question + time_context
 ### 4. Rate Limiting
 ```python
 def check_rate_limit(self, user_id):
-    """Rate limit kontrolü - dakikada 5 istek"""
+    """Rate limit kontrolü - dakikada 10 istek"""
     now = time.time()
     
     # Eski istekleri temizle (60 saniyeden eski)
@@ -178,8 +197,46 @@ if user_name_lower == "aizen":
 
 ### 6. Character Limit Compliance
 - drrr.com has 140 character limit
-- Messages are auto-chunked in `networking.py`
-- AI is instructed to keep responses under 100 chars to account for @username tag
+- Messages are auto-chunked via smart chunking in `networking.py`
+- AI is instructed to keep responses under 120 chars to account for @username tag
+- Double @username prevention: AI response stripped of @username prefix before sending
+
+### 7. Multi API Key Rotation
+```python
+# Load up to 10 Gemini API keys from .env
+# GEMINI_API_KEY, GEMINI_API_KEY_2, ..., GEMINI_API_KEY_10
+self.gemini_clients = []
+for key_name in ['GEMINI_API_KEY'] + [f'GEMINI_API_KEY_{i}' for i in range(2, 11)]:
+    key = os.getenv(key_name, '').strip()
+    if key:
+        client = genai.Client(api_key=key, ...)
+        self.gemini_clients.append(client)
+
+# Round-robin with rate-limit tracking (8 RPM per key, free tier is 10)
+self.gemini_key_timestamps = {i: [] for i in range(len(self.gemini_clients))}
+```
+
+### 8. Parallel Message Handling
+```python
+# main.py: fire-and-forget with asyncio.create_task
+async def handler(msg):
+    asyncio.create_task(_run_module_handler(msg))  # Non-blocking
+```
+
+### 9. Room-Wide Chat Awareness
+```python
+# All messages added to room_history (max 30 entries)
+self.room_history.append({'user': user_name, 'message': msg_text, 'time': timestamp})
+
+# Injected as [ODA SOHBETİ] context in AI messages
+room_context = "[ODA SOHBETİ - son mesajlar]\n" + formatted_room_msgs
+```
+
+### 10. Sender Recognition
+```python
+# Prefix messages with sender info so AI knows who's talking
+question_with_context = f"[Yazan: @{user_name}] {question}" + time_context
+```
 
 ### 7. Async Patterns
 ```python
@@ -315,12 +372,18 @@ When making changes, test:
 - [ ] Real-time date/time information is correct
 - [ ] No response to DMs (expected behavior)
 - [ ] Conversation history persists per user
+- [ ] Room-wide chat awareness works (cross-user context)
 - [ ] API errors handled gracefully
 - [ ] Log files created successfully
 - [ ] Validation system catches questions (with and without ?)
 - [ ] Validation system rejects banned phrases
 - [ ] Fallback responses used when AI output invalid
 - [ ] Bot doesn't respond to its own messages
+- [ ] Multi API key rotation works correctly
+- [ ] Groq fallback activates when all Gemini keys exhausted
+- [ ] Parallel message handling (concurrent users get responses)
+- [ ] Double @username prevention works
+- [ ] Family members recognized correctly (baba/abla hitap)
 
 ## Security Considerations
 
@@ -334,12 +397,15 @@ When making changes, test:
 ## Performance Tips
 
 1. **Throttling**: Keep `throttle >= 1.5` to avoid rate limits
-2. **History Limit**: Max 10 messages per user to save memory
-3. **Token Limit**: Max 150 tokens per AI response for speed
-4. **Temperature**: 0.7 for balanced creativity/consistency
-5. **Model Choice**: llama-3.3-70b-versatile is recommended for natural conversation (70B params)
-6. **Rate Limiting**: 5 requests per minute per user prevents abuse
-7. **Auto-Cleanup**: 1 hour inactivity timeout clears old histories
+2. **History Limit**: Max 25 message pairs per user (50 entries) for better context
+3. **Room History**: Last 30 messages from all users for cross-user awareness
+4. **Token Limit**: max_output_tokens=1024, thinking_budget=256
+5. **Temperature**: 0.8 for balanced creativity/consistency
+6. **Model Choice**: gemini-2.5-flash (primary) + deepseek-r1-distill-llama-70b-specdec (fallback)
+7. **Multi-Key Rotation**: Up to 10 Gemini API keys, 8 RPM limit per key (safety margin)
+8. **Rate Limiting**: 10 requests per minute per user prevents abuse
+9. **Auto-Cleanup**: 1 hour inactivity timeout clears old histories
+10. **Parallel Processing**: asyncio.create_task() for concurrent user responses
 
 ## Deployment Notes
 
@@ -357,24 +423,32 @@ python main.py
 
 ### Environment Variables for Production
 ```env
+GEMINI_API_KEY=your_primary_gemini_key
+GEMINI_API_KEY_2=your_second_key
+GEMINI_API_KEY_3=your_third_key
+# ... up to GEMINI_API_KEY_10
 GROQ_API_KEY=gsk_xxxxx
 OWNER_PASSWORD=your_password_here
+WEATHER_API_KEY=your_weather_key
+TMDB_API_KEY=your_tmdb_key
 ```
 
 ## AI Prompt Engineering
 
 Current system prompt philosophy:
-- **Brevity**: Max 100 characters enforced (validated: 10-100 char range)
-- **Natural Language**: Rahat, basit, kasımsız konuşma tarzı
-- **Example-Driven**: Prompt içinde "naber" → "iyidir senden naber" gibi örnekler
-- **Avoid Patterns**: "sabahları iyiyim", "güzel günler" gibi garip ifadeler yasaklandı
-- **Banned Phrases**: "kahve", "çay", "ne yaparız", "ne yapıyorsun", "yemek yedin" ve benzerleri
+- **Brevity**: Max 120 characters enforced (platform limit is 140)
+- **Personality**: Edgy, sassy, street-smart. Swears casually, sharp humor (piç ama sevimli)
+- **Language Rule (DİL KURALI)**: Turkish only, even if user writes in English
+- **Family Awareness**: @aizen = "baba", @Days = "abla" (hitap şekilleri)
+- **Room Context**: Sees last 30 messages from all users via [ODA SOHBETİ]
+- **Sender Recognition**: Knows who's talking via [Yazan: @username] prefix
 - **No Questions**: Soru kelimesi ve soru işareti kesinlikle yasak
-- **Context Awareness**: Inject real-time date/time
-- **Personality**: Arkadaş canlısı, samimi, doğal
-- **Temperature**: 0.7 for optimal consistency (lowered from 0.9)
-- **Max Tokens**: 150 (optimized for brevity)
-- **Model**: llama-3.3-70b-versatile (70B params for better understanding)
+- **Banned Phrases**: "kahve", "çay", "ne yaparız", "ne yapıyorsun", "yemek yedin" ve benzerleri
+- **Context Awareness**: Inject real-time Turkish date/time
+- **Temperature**: 0.8
+- **Max Output Tokens**: 1024 (thinking_budget=256 for ThinkingConfig)
+- **Primary Model**: gemini-2.5-flash (Google, free, thinking model)
+- **Fallback Model**: deepseek-r1-distill-llama-70b-specdec (Groq, free)
 
 ## Future Enhancements
 
@@ -398,16 +472,30 @@ python main.py  # Restart
 
 ### Test AI Locally
 ```python
-from groq import Groq
+# Test Gemini (Primary)
+from google import genai
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
+client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
+response = client.models.generate_content(
+    model='gemini-2.5-flash',
+    contents='test',
+    config=genai.types.GenerateContentConfig(
+        max_output_tokens=1024,
+        thinking_config=genai.types.ThinkingConfig(thinking_budget=256)
+    )
+)
+print(response.text)
+
+# Test Groq (Fallback)
+from groq import Groq
 client = Groq(api_key=os.getenv('GROQ_API_KEY'))
 response = client.chat.completions.create(
-    model="llama-3.3-70b-versatile",
+    model="deepseek-r1-distill-llama-70b-specdec",
     messages=[{"role": "user", "content": "test"}],
-    max_tokens=150
+    max_tokens=1024
 )
 print(response.choices[0].message.content)
 ```

@@ -4,6 +4,58 @@ Tüm önemli değişiklikler bu dosyada belgelenmektedir.
 
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) standardına uygun
 
+## [1.3.0] - 2026-03-04
+
+### Eklenen ✨
+- **Google Gemini 2.5 Flash (Birincil AI)**: Groq yerine Google Gemini thinking model birincil AI olarak eklendi
+- **Çoklu API Key Rotasyonu**: 10'a kadar Gemini API key desteği (GEMINI_API_KEY, _2, ..._10)
+  - Round-robin + rate-limit-aware rotasyon
+  - Key başına 8 RPM güvenlik marjı (free tier 10 RPM)
+  - Tüm key'ler tükenince Groq fallback'e geçiş
+- **Groq Yedek Sistemi**: Gemini başarısız olursa otomatik Groq fallback
+  - Model: deepseek-r1-distill-llama-70b-specdec (llama-3.3-70b'den upgrade)
+- **Paralel Mesaj İşleme**: asyncio.create_task() ile eş zamanlı kullanıcı yanıtları
+  - ThreadPoolExecutor(max_workers=8) ile blocking operasyonlar
+  - Birden fazla kullanıcı aynı anda cevap alabilir
+- **Oda Sohbet Farkındalığı**: room_history ile kullanıcılar arası bağlam
+  - Son 30 mesaj takibi (tüm kullanıcılardan)
+  - [ODA SOHBETİ] context olarak AI'a enjekte edilir
+- **Gönderici Tanıma**: `[Yazan: @username]` prefix ile AI kimin yazdığını bilir
+- **Çift @username Önleme**: AI cevabından @username strip edilir (kod da ekliyordu)
+- **Aile Sistemi**: father=aizen ("baba" hitap), sister=Days ("abla" hitap)
+- **DİL KURALI**: Türkçe-only kural, İngilizce yazılsa bile Türkçe cevap
+- **120 Karakter Hedef**: Platform limiti 140, bot 120 hedefler (@username için alan)
+- **Gelişmiş Konuşma Geçmişi**: 
+  - max_history 10→25 mesaj çifti (50 entry)
+  - Özel komut yanıtları da geçmişe kaydedilir (film, döviz, hava durumu vb.)
+- **Film Arama Genişletme**: istatistik, puan, imdb, rating, oy, gişe, hasılat, oyuncu, yönetmen, bütçe, fragman
+- **google-genai Paketi**: requirements.txt'e eklendi
+
+### Değiştirilen 🔄
+- **Birincil AI**: Groq → Google Gemini 2.5 Flash (thinking model)
+- **Yedek AI Model**: llama-3.3-70b-versatile → deepseek-r1-distill-llama-70b-specdec
+- **Kişilik**: Samimi/doğal → Edgy, piç ama sevimli, küfürlü sokak dili
+- **Temperature**: 0.7 → 0.8
+- **Max Output Tokens**: 150 → 1024 (thinking_budget=256)
+- **ThinkingConfig**: thinking_budget=256, Gemini düşünme modeli için token ayrımı
+- **Rate Limiting**: 5 → 10 istek/dakika/kullanıcı
+- **Karakter Limiti**: 100 → 120 karakter hedef
+- **"Sen kimsin" Regex**: `\bsen\s+ne(sin)?\b` → `\bsen\s+nesin\b` (false positive düzeltme)
+- **Handler**: `await` → `asyncio.create_task()` (paralel işleme)
+- **System Prompt**: Tamamen yeniden yazıldı (edgy kişilik, aile sistemi, oda bağlamı)
+
+### Düzeltilen 🐛
+- **Truncated Responses (FinishReason.MAX_TOKENS)**: Gemini thinking model token'ları düşünme+yanıt olarak paylaşıyordu, max_tokens artırıldı
+- **Çift @username**: AI cevabında @name + kodun da @name eklemesi → regex strip
+- **Dil Karışması**: AI bazen cümle ortasında İngilizce/Çince yazıyordu → DİL KURALI
+- **"Ne sence" False Positive**: "sen kimsin" regex'i "ne sence" yakalıyordu → regex daraltıldı
+- **Concurrent Message Drop**: `await` engellemesi paralel mesajları engelliyordu → create_task
+- **Syntax Error**: Duplicate `] + api_history` satırı kaldırıldı
+
+### Kaldırılan ❌
+- **Anne (Mother)**: Aile sözlüğünden ve tüm ilgili koddan kaldırıldı
+- **Groq Birincil**: Artık yedek olarak kullanılıyor (Gemini birincil)
+
 ## [1.2.0] - 2026-02-22
 
 ### Eklenen ✨
@@ -152,15 +204,18 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) standardına uy
 ### AI Provider Değişiklikleri
 1. **v0.1**: OpenAI GPT-3.5/GPT-4 (ücretli)
 2. **v1.0**: Groq llama-3.1-8b-instant (ücretsiz)
+3. **v1.3**: Google Gemini 2.5 Flash (birincil, ücretsiz) + Groq deepseek-r1 (yedek)
 
 ### Model Değişiklikleri
 1. **İlk**: llama3-8b-8192 (deprecated)
-2. **Güncel**: llama-3.1-8b-instant (aktif)
+2. **v1.1**: llama-3.3-70b-versatile (aktif)
+3. **v1.3**: gemini-2.5-flash (birincil) + deepseek-r1-distill-llama-70b-specdec (yedek)
 
 ### Mimari Değişiklikler
 - **Başlangıç**: Sync HTTP requests
 - **v0.5**: Async/await pattern
 - **v1.0**: Full async with curl_cffi
+- **v1.3**: Parallel processing (asyncio.create_task), multi-key rotation, dual context system
 
 ---
 
@@ -181,13 +236,14 @@ Yok
 
 ## Bağımlılık Versiyonları
 
-### Güncel Yapı (v1.0.0)
+### Güncel Yapı (v1.3.0)
 ```
 Python: 3.12.2+
 aiohttp: 3.10.11
 aiofiles: latest
 curl_cffi: 0.7.3
 groq: 1.0.0
+google-genai: latest
 python-dotenv: latest
 ```
 
@@ -202,7 +258,7 @@ python-dotenv: latest
 
 - **Ana Geliştirici**: AIzen Projesi
 - **Temel Framework**: [stozn/drrr-bot](https://github.com/stozn/drrr-bot)
-- **AI Provider**: [Groq](https://groq.com)
+- **AI Provider**: [Google Gemini](https://aistudio.google.com) (birincil) / [Groq](https://groq.com) (yedek)
 
 ---
 
@@ -215,4 +271,4 @@ python-dotenv: latest
 
 ---
 
-**Son Güncelleme**: 22 Şubat 2026
+**Son Güncelleme**: 4 Mart 2026
