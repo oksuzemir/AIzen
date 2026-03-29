@@ -1,16 +1,14 @@
 # AI-zen - drrr.com AI Chatbot 🤖
 
-**AI-zen**, [drrr.com](https://drrr.com) anonim chat odalarına bağlanan, **Google Gemini 2.5 Flash (birincil, ücretsiz)** ve **Groq (yedek, ücretsiz)** destekli akıllı sohbet botudur. Kullanıcılar `@AI-zen` ile etiketleyerek bot ile konuşabilir.
+**AI-zen**, [drrr.com](https://drrr.com) anonim chat odalarına bağlanan, **Groq (llama-3.3-70b-versatile, ücretsiz)** destekli akıllı sohbet botudur. Kullanıcılar `@AI-zen` ile etiketleyerek bot ile konuşabilir.
 
 ## ✨ Özellikler
 
 - 🎯 **@AI-zen Etiketleme**: Chat odasında @AI-zen yazarak botu çağırabilirsiniz
-- 🧠 **Konuşma Hafızası**: Her kullanıcı için ayrı konuşma geçmişi tutar (max 25 mesaj çifti)
-- 🏠 **Oda Sohbet Farkındalığı**: Son 30 mesajı takip ederek kullanıcılar arası bağlam sağlar
+- 🧠 **Konuşma Hafızası**: Her kullanıcı için ayrı konuşma geçmişi tutar (max 15 mesaj çifti)
+- 🏠 **Oda Sohbet Farkındalığı**: Son 20 mesajı takip ederek kullanıcılar arası bağlam sağlar
 - 🌐 **Türkçe Odaklı**: Türkçe sokak dili, küfürlü ama sevimli kişilik
-- ⚡ **Google Gemini 2.5 Flash**: Birincil AI (ücretsiz, thinking model)
-- 🔄 **Groq Yedek**: Gemini başarısız olursa deepseek-r1-distill-llama-70b-specdec modeline geçiş
-- 🔑 **Çoklu API Key**: 10'a kadar Gemini API key ile round-robin rotasyon
+- ⚡ **Groq llama-3.3-70b-versatile**: Birincil AI (ücretsiz, hızlı)
 - 📏 **Kısa Cevaplar**: 120 karakter hedef, 140 karakter platform limiti
 - ⏰ **Gerçek Zamanlı**: Her soruda güncel Türkiye saati ve tarih bilgisi
 - 🎨 **Modüler Yapı**: Kolay genişletilebilir modül sistemi
@@ -31,14 +29,13 @@
 ## 📋 Gereksinimler
 
 - Python 3.12+ (3.8+ de çalışır)
-- Google Gemini API Key (Ücretsiz: [aistudio.google.com](https://aistudio.google.com))
-- Groq API Key - yedek (Ücretsiz: [console.groq.com](https://console.groq.com))
+- Groq API Key (Ücretsiz: [console.groq.com](https://console.groq.com))
 - drrr.com cookies (drrr-session-1, cf_clearance)
 
 ### Gerekli Paketler
 
 ```bash
-pip install aiohttp aiofiles curl_cffi groq google-genai python-dotenv
+pip install aiohttp aiofiles curl_cffi groq python-dotenv
 ```
 
 ## 🚀 Kurulum
@@ -53,17 +50,12 @@ cd AIzen
 ### 2. Bağımlılıkları Yükleyin
 
 ```bash
-pip install aiohttp aiofiles curl_cffi groq google-genai python-dotenv
+pip install aiohttp aiofiles curl_cffi groq python-dotenv
 ```
 
 ### 3. API Key'leri Alın (Ücretsiz!)
 
-**Gemini (Birincil AI):**
-1. [aistudio.google.com](https://aistudio.google.com) adresine gidin
-2. API Key oluşturun (birden fazla key önerilir, rate limit için)
-3. Key'leri kopyalayın
-
-**Groq (Yedek AI):**
+**Groq (Birincil AI):**
 1. [console.groq.com](https://console.groq.com) adresine gidin
 2. Ücretsiz hesap oluşturun
 3. API Key oluşturun
@@ -73,13 +65,7 @@ pip install aiohttp aiofiles curl_cffi groq google-genai python-dotenv
 Proje klasöründe `.env` dosyası oluşturun:
 
 ```env
-# Gemini API Keys (birincil AI - birden fazla key rate limit için)
-GEMINI_API_KEY=your_primary_key
-GEMINI_API_KEY_2=your_second_key
-GEMINI_API_KEY_3=your_third_key
-# ... 10'a kadar ekleyebilirsiniz (GEMINI_API_KEY_10)
-
-# Groq API Key (yedek AI)
+# Groq API Key (birincil AI)
 GROQ_API_KEY=gsk_your-groq-key-here
 
 # Owner şifresi (aizen kullanıcısı için)
@@ -193,15 +179,12 @@ Terminal'de `Ctrl+C` ile bot'u güvenli şekilde kapatabilirsiniz.
 
 [modules/AIzen.py](modules/AIzen.py) dosyasında AI modelini değiştirebilirsiniz:
 
-**Birincil AI (Gemini):**
-- `gemini-2.5-flash` - Thinking model, en kaliteli ücretsiz seçenek (ÖNERİLEN)
-
-**Yedek AI (Groq):**
-- `deepseek-r1-distill-llama-70b-specdec` - Hızlı ve kaliteli (ÖNERİLEN)
-- `llama-3.3-70b-versatile` - Güçlü ve doğal
+**AI Modelleri (Groq):**
+- `llama-3.3-70b-versatile` - Güçlü ve doğal (ÖNERİLEN)
+- `deepseek-r1-distill-llama-70b-specdec` - Hızlı ve kaliteli
 - `llama-3.1-8b-instant` - Hızlı ve hafif
 
-**Not:** Bot varsayılan olarak `gemini-2.5-flash` kullanır, Gemini başarısız olursa otomatik olarak Groq'a geçer.
+**Not:** Bot varsayılan olarak `llama-3.3-70b-versatile` kullanır.
 
 ### AI Personality Değiştirme
 
@@ -217,16 +200,12 @@ Max 120 karakter. 1-2 cümle ideal.
 
 ### Karakter Limiti Ayarlama
 
-Gemini ayarları `modules/AIzen.py` içinde:
+Groq ayarları `modules/AIzen.py` içinde:
 
 ```python
-config = genai.types.GenerateContentConfig(
-    max_output_tokens=1024,      # Max çıktı token
-    temperature=0.8,              # 0.0-2.0 (düşük=tutarlı, yüksek=yaratıcı)
-    thinking_config=genai.types.ThinkingConfig(
-        thinking_budget=256       # Düşünme için ayrılan token
-    )
-)
+self.model = "llama-3.3-70b-versatile"
+self.max_tokens = 300
+self.temperature = 0.8  # 0.0-2.0 (düşük=tutarlı, yüksek=yaratıcı)
 ```
 
 ### Yeni Modül Ekleme
@@ -292,12 +271,11 @@ AIzen/
 ### "GROQ_API_KEY bulunamadı" Hatası
 **Çözüm:** `.env` dosyasının proje klasöründe olduğundan ve doğru formatta olduğundan emin olun:
 ```env
-GEMINI_API_KEY=your_gemini_key
 GROQ_API_KEY=gsk_your-key-here
 ```
 
 ### "Error code: 400 - Model has been decommissioned" Hatası
-**Çözüm:** `modules/AIzen.py` içinde model adını güncelleyin. Bot varsayılan olarak `gemini-2.5-flash` kullanır, Groq yedek olarak `deepseek-r1-distill-llama-70b-specdec` kullanır.
+**Çözüm:** `modules/AIzen.py` içinde model adını güncelleyin. Bot varsayılan olarak `llama-3.3-70b-versatile` kullanır.
 
 ### "Cookie geçersiz" / "认证错误" Hatası
 **Çözüm:** 
@@ -317,7 +295,7 @@ proxies = None  # Proxy kullanmıyorsanız
 ### "Module not found: groq" Hatası
 **Çözüm:** Gerekli paketleri yükleyin:
 ```bash
-pip install groq google-genai
+pip install groq
 ```
 
 ### Bot mesaj göndermiyor
@@ -355,12 +333,10 @@ Bu proje MIT lisansı altında lisanslanmıştır.
 ## 📜 Değişiklik Geçmişi
 
 ### v1.3 - Mevcut Versiyon
-- ✅ Google Gemini 2.5 Flash (birincil AI, thinking model)
-- ✅ Groq deepseek-r1-distill-llama-70b-specdec (yedek AI)
-- ✅ Çoklu API key rotasyonu (10'a kadar Gemini key)
+- ✅ Groq llama-3.3-70b-versatile (birincil AI)
 - ✅ Paralel mesaj işleme (eş zamanlı kullanıcı yanıtları)
-- ✅ Oda sohbet farkındalığı (son 30 mesaj cross-user context)
-- ✅ Per-user konuşma geçmişi (25 mesaj çifti)
+- ✅ Oda sohbet farkındalığı (son 20 mesaj cross-user context)
+- ✅ Per-user konuşma geçmişi (15 mesaj çifti)
 - ✅ Edgy, piç ama sevimli Türkçe kişilik
 - ✅ Sadece Türkçe konuşma kuralı (DİL KURALI)
 - ✅ Aile sistemi: aizen=baba, Days=abla
@@ -368,7 +344,6 @@ Bu proje MIT lisansı altında lisanslanmıştır.
 - ✅ Çift @username önleme
 - ✅ Gönderici tanıma ([Yazan: @username])
 - ✅ Film arama, hava durumu, döviz, matematik özellikleri
-- ✅ ThinkingConfig: thinking_budget=256, max_output_tokens=1024
 
 ### Planlanmış Özellikler
 - 🔄 7/24 cloud deployment (Fly.io/Railway)
@@ -380,8 +355,7 @@ Bu proje MIT lisansı altında lisanslanmıştır.
 ## 🙏 Teşekkürler
 
 - [stozn/drrr-bot](https://github.com/stozn/drrr-bot) - Base bot implementasyonu
-- [Google Gemini](https://aistudio.google.com) - Birincil AI (ücretsiz)
-- [Groq](https://groq.com) - Yedek AI (ücretsiz)
+- [Groq](https://groq.com) - Birincil AI (ücretsiz)
 - [drrr.com](https://drrr.com) - Chat platformu
 
 ## 📧 İletişim
@@ -390,4 +364,4 @@ Sorularınız için issue açabilirsiniz.
 
 ---
 
-**NGroq](https://groq.com) - Ücretsiz yedek AI | [Google Gemini](https://aistudio.google.com) - Ücretsiz birincil AI. Sorumlu kullanın! 🎓
+**[Groq](https://groq.com) - Ücretsiz AI. Sorumlu kullanın! 🎓

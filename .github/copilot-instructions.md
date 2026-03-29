@@ -2,15 +2,14 @@
 
 ## Project Overview
 
-AI-zen is an AI-powered chatbot for drrr.com anonymous chat platform. It uses Google Gemini 2.5 Flash (primary, free) with multi-key rotation, or Groq (fallback, free) to respond when tagged with @AI-zen in chat rooms.
+AI-zen is an AI-powered chatbot for drrr.com anonymous chat platform. It uses Groq (llama-3.3-70b-versatile, free) to respond when tagged with @AI-zen in chat rooms.
 
 **Key Facts:**
 - Bot Name: AI-zen (with hyphen)
 - Owner Username: aizen (without hyphen)
 - Language: Python 3.12+
-- AI Provider: Google Gemini (primary, free) / Groq (fallback, free)
-- Primary Model: gemini-2.5-flash (thinking model, thinking_budget=256)
-- Fallback Model: deepseek-r1-distill-llama-70b-specdec (Groq)
+- AI Provider: Groq (primary, free)
+- Primary Model: llama-3.3-70b-versatile (Groq)
 - Target Platform: drrr.com
 - Primary Users: Turkish and English speakers
 - Character Limit: 140 characters per message (bot targets max 120 chars)
@@ -25,7 +24,6 @@ aiohttp==3.10.11        # Async HTTP operations
 aiofiles                # Async file operations
 curl_cffi==0.7.3        # HTTP requests with Cloudflare bypass
 groq==1.0.0             # Groq AI API client
-google-genai            # Google Gemini AI client
 python-dotenv           # Environment variable management
 ```
 
@@ -36,7 +34,6 @@ python-dotenv           # Environment variable management
 - **ThreadPoolExecutor**: 8 workers for blocking operations
 - **Modular System**: Plugin-based module loading from `modules/` directory
 - **Cookie Auth**: Uses drrr-session-1 and cf_clearance cookies
-- **Multi API Key Rotation**: Up to 10 Gemini API keys with round-robin + rate-limit-aware rotation
 - **Dual Context System**: Per-user conversation history + room-wide chat awareness
 
 ## File Structure & Responsibilities
@@ -64,11 +61,9 @@ python-dotenv           # Environment variable management
 #### `modules/AIzen.py`
 - Main AI chatbot logic (~3300+ lines)
 - Responds to @AI-zen mentions in chat (NOT to DMs)
-- **Primary AI**: Google Gemini 2.5 Flash (thinking model) with multi-key rotation
-- **Fallback AI**: Groq with deepseek-r1-distill-llama-70b-specdec
-- **Multi API Key Rotation**: Supports up to 10 Gemini keys (GEMINI_API_KEY, _2, ..._10) with round-robin + rate-limit-aware rotation (8 RPM per key safety margin)
-- **Per-User Conversation History**: Max 25 message pairs (50 entries)
-- **Room-Wide Chat Awareness**: Last 30 messages from all users as cross-user context
+- **Primary AI**: Groq with llama-3.3-70b-versatile
+- **Per-User Conversation History**: Max 15 message pairs (30 entries)
+- **Room-Wide Chat Awareness**: Last 20 messages from all users as cross-user context
 - Injects real-time context (Turkish timezone, date, time)
 - **Personality**: Edgy, sassy, street-smart Turkish personality. Swears casually, sharp humor, max 120 chars
 - **Family System**: father=aizen ("baba" hitap), sister=Days ("abla" hitap)
@@ -201,29 +196,7 @@ if user_name_lower == "aizen":
 - AI is instructed to keep responses under 120 chars to account for @username tag
 - Double @username prevention: AI response stripped of @username prefix before sending
 
-### 7. Multi API Key Rotation
-```python
-# Load up to 10 Gemini API keys from .env
-# GEMINI_API_KEY, GEMINI_API_KEY_2, ..., GEMINI_API_KEY_10
-self.gemini_clients = []
-for key_name in ['GEMINI_API_KEY'] + [f'GEMINI_API_KEY_{i}' for i in range(2, 11)]:
-    key = os.getenv(key_name, '').strip()
-    if key:
-        client = genai.Client(api_key=key, ...)
-        self.gemini_clients.append(client)
-
-# Round-robin with rate-limit tracking (8 RPM per key, free tier is 10)
-self.gemini_key_timestamps = {i: [] for i in range(len(self.gemini_clients))}
-```
-
-### 8. Parallel Message Handling
-```python
-# main.py: fire-and-forget with asyncio.create_task
-async def handler(msg):
-    asyncio.create_task(_run_module_handler(msg))  # Non-blocking
-```
-
-### 9. Room-Wide Chat Awareness
+### 7. Async Patterns
 ```python
 # All messages added to room_history (max 30 entries)
 self.room_history.append({'user': user_name, 'message': msg_text, 'time': timestamp})
@@ -379,8 +352,6 @@ When making changes, test:
 - [ ] Validation system rejects banned phrases
 - [ ] Fallback responses used when AI output invalid
 - [ ] Bot doesn't respond to its own messages
-- [ ] Multi API key rotation works correctly
-- [ ] Groq fallback activates when all Gemini keys exhausted
 - [ ] Parallel message handling (concurrent users get responses)
 - [ ] Double @username prevention works
 - [ ] Family members recognized correctly (baba/abla hitap)
@@ -397,15 +368,14 @@ When making changes, test:
 ## Performance Tips
 
 1. **Throttling**: Keep `throttle >= 1.5` to avoid rate limits
-2. **History Limit**: Max 25 message pairs per user (50 entries) for better context
-3. **Room History**: Last 30 messages from all users for cross-user awareness
-4. **Token Limit**: max_output_tokens=1024, thinking_budget=256
+2. **History Limit**: Max 15 message pairs per user (30 entries) for token efficiency
+3. **Room History**: Last 20 messages from all users for cross-user awareness
+4. **Token Limit**: max_output_tokens=300
 5. **Temperature**: 0.8 for balanced creativity/consistency
-6. **Model Choice**: gemini-2.5-flash (primary) + deepseek-r1-distill-llama-70b-specdec (fallback)
-7. **Multi-Key Rotation**: Up to 10 Gemini API keys, 8 RPM limit per key (safety margin)
-8. **Rate Limiting**: 10 requests per minute per user prevents abuse
-9. **Auto-Cleanup**: 1 hour inactivity timeout clears old histories
-10. **Parallel Processing**: asyncio.create_task() for concurrent user responses
+6. **Model Choice**: llama-3.3-70b-versatile (Groq, free)
+7. **Rate Limiting**: 10 requests per minute per user prevents abuse
+8. **Auto-Cleanup**: 1 hour inactivity timeout clears old histories
+9. **Parallel Processing**: asyncio.create_task() for concurrent user responses
 
 ## Deployment Notes
 
@@ -423,10 +393,6 @@ python main.py
 
 ### Environment Variables for Production
 ```env
-GEMINI_API_KEY=your_primary_gemini_key
-GEMINI_API_KEY_2=your_second_key
-GEMINI_API_KEY_3=your_third_key
-# ... up to GEMINI_API_KEY_10
 GROQ_API_KEY=gsk_xxxxx
 OWNER_PASSWORD=your_password_here
 WEATHER_API_KEY=your_weather_key
@@ -440,15 +406,14 @@ Current system prompt philosophy:
 - **Personality**: Edgy, sassy, street-smart. Swears casually, sharp humor (piç ama sevimli)
 - **Language Rule (DİL KURALI)**: Turkish only, even if user writes in English
 - **Family Awareness**: @aizen = "baba", @Days = "abla" (hitap şekilleri)
-- **Room Context**: Sees last 30 messages from all users via [ODA SOHBETİ]
+- **Room Context**: Sees last 20 messages from all users via [ODA SOHBETİ]
 - **Sender Recognition**: Knows who's talking via [Yazan: @username] prefix
 - **No Questions**: Soru kelimesi ve soru işareti kesinlikle yasak
 - **Banned Phrases**: "kahve", "çay", "ne yaparız", "ne yapıyorsun", "yemek yedin" ve benzerleri
 - **Context Awareness**: Inject real-time Turkish date/time
 - **Temperature**: 0.8
-- **Max Output Tokens**: 1024 (thinking_budget=256 for ThinkingConfig)
-- **Primary Model**: gemini-2.5-flash (Google, free, thinking model)
-- **Fallback Model**: deepseek-r1-distill-llama-70b-specdec (Groq, free)
+- **Max Output Tokens**: 300
+- **Primary Model**: llama-3.3-70b-versatile (Groq, free)
 
 ## Future Enhancements
 
@@ -472,30 +437,17 @@ python main.py  # Restart
 
 ### Test AI Locally
 ```python
-# Test Gemini (Primary)
-from google import genai
+# Test Groq
+from groq import Groq
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
-client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
-response = client.models.generate_content(
-    model='gemini-2.5-flash',
-    contents='test',
-    config=genai.types.GenerateContentConfig(
-        max_output_tokens=1024,
-        thinking_config=genai.types.ThinkingConfig(thinking_budget=256)
-    )
-)
-print(response.text)
-
-# Test Groq (Fallback)
-from groq import Groq
 client = Groq(api_key=os.getenv('GROQ_API_KEY'))
 response = client.chat.completions.create(
-    model="deepseek-r1-distill-llama-70b-specdec",
+    model="llama-3.3-70b-versatile",
     messages=[{"role": "user", "content": "test"}],
-    max_tokens=1024
+    max_tokens=300
 )
 print(response.choices[0].message.content)
 ```

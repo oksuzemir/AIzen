@@ -14,72 +14,24 @@ from modules.module import Module
 from groq import Groq
 import popyo
 
-# Google Gemini (en kaliteli bedava model)
-try:
-    from google import genai
-    from google.genai import types as genai_types
-    GEMINI_AVAILABLE = True
-except ImportError:
-    GEMINI_AVAILABLE = False
-
 class AIzen(Module):
     def __init__(self, bot):
         super().__init__(bot)
         
         # ==================== AI PROVIDER SETUP ====================
-        # Öncelik: 1. Google Gemini (en kaliteli bedava), 2. Groq (fallback)
         self.ai_provider = None
-        self.gemini_clients = []  # Birden fazla API key desteği
-        self.gemini_client = None  # Aktif client
-        self.gemini_client_index = 0  # Hangi key kullanılıyor
         self.groq_client = None
         
-        # 1. Google Gemini - Birden fazla API key desteği (rotasyon ile RPM artışı)
-        # .env'de GEMINI_API_KEY, GEMINI_API_KEY_2, GEMINI_API_KEY_3 ... tanımlanabilir
-        gemini_keys = []
-        primary_key = os.getenv('GEMINI_API_KEY')
-        if primary_key:
-            gemini_keys.append(primary_key)
-        # Ek key'leri bul (GEMINI_API_KEY_2, _3, _4, ...)
-        for i in range(2, 11):  # Max 10 key
-            extra_key = os.getenv(f'GEMINI_API_KEY_{i}')
-            if extra_key:
-                gemini_keys.append(extra_key)
-        
-        if GEMINI_AVAILABLE and gemini_keys:
-            for idx, key in enumerate(gemini_keys):
-                try:
-                    client = genai.Client(
-                        api_key=key,
-                        http_options=genai_types.HttpOptions(api_version='v1beta', timeout=30000)
-                    )
-                    self.gemini_clients.append(client)
-                except Exception as e:
-                    print(f"⚠️ Gemini key #{idx+1} başlatılamadı: {e}")
-            
-            if self.gemini_clients:
-                self.gemini_client = self.gemini_clients[0]
-                self.ai_provider = 'gemini'
-                total_rpm = len(self.gemini_clients) * 10
-                print(f"✅ AI Provider: Google Gemini 2.5 Flash ({len(self.gemini_clients)} API key, ~{total_rpm} RPM)")
-        
-        # 2. Groq (fallback veya primary)
+        # Groq (primary)
         groq_api_key = os.getenv('GROQ_API_KEY')
         if groq_api_key:
             self.groq_client = Groq(api_key=groq_api_key)
-            if not self.ai_provider:
-                self.ai_provider = 'groq'
-                print("✅ AI Provider: Groq (llama-3.3-70b-versatile) - primary")
-            else:
-                print("✅ Groq fallback hazır (rate limit durumunda otomatik geçiş)")
+            self.ai_provider = 'groq'
+            print("✅ AI Provider: Groq (llama-3.3-70b-versatile)")
         
-        # Hiçbir provider yoksa uyarı ver
+        # Provider yoksa uyarı ver
         if not self.ai_provider:
-            print("⚠️  UYARI: Hiçbir AI provider ayarlanmamış!")
-            print("   Önerilen: Google Gemini (bedava, en kaliteli)")
-            print("   1. https://aistudio.google.com adresinden ücretsiz API key alın")
-            print("   2. .env dosyasına ekleyin: GEMINI_API_KEY=your-api-key-here")
-            print("   Alternatif: Groq (fallback)")
+            print("⚠️  UYARI: AI provider ayarlanmamış!")
             print("   1. https://console.groq.com adresinden ücretsiz API key alın")
             print("   2. .env dosyasına ekleyin: GROQ_API_KEY=your-api-key-here")
         # ==================== AI PROVIDER SETUP BİTİŞ ====================
@@ -116,18 +68,14 @@ class AIzen(Module):
         
         # Oda geneli sohbet geçmişi (tüm kullanıcıların mesajları - cross-user farkındalık)
         self.room_history = []  # [{"user": "username", "message": "...", "time": timestamp}, ...]
-        self.max_room_history = 30  # Son 30 mesajı tut
+        self.max_room_history = 20  # Son 20 mesajı tut (token optimizasyonu)
         
         # Maksimum conversation history uzunluğu
-        self.max_history = 25  # 25 mesaj çifti (50 entry) - daha uzun hafıza
+        self.max_history = 15  # 15 mesaj çifti (30 entry) - 2.0-flash token optimizasyonu
         
         # Rate limiting (user_id: [timestamp, timestamp, ...])
         self.rate_limit_tracker = defaultdict(list)
         self.max_requests_per_minute = 10  # 5'ten 10'a çıkardık - daha gevşek
-        
-        # Global Gemini rate limiting (429'ü önlemek için) - her key için ayrı tracking
-        self.gemini_key_timestamps = defaultdict(list)  # {key_index: [timestamps]}
-        self.gemini_per_key_rpm = 8  # Her key için dakikada max 8 istek (free tier 10, güvenlik payı)
         
         # İstatistikler
         self.stats = {
@@ -147,45 +95,92 @@ class AIzen(Module):
         # Shared ThreadPoolExecutor (_run_async için)
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
         
-        # AI personality
-        self.system_prompt = """Sen AI-zen. drrr.com sohbet odasında takılıyorsun.
-
-Kişiliğin:
-- Kendine güvenen, biraz küstah, biraz piç ama sevimli bir tipsin.
-- Laf sokarsın, taşak geçersin, küfür de edersin gerekirse (ama her cümlede değil).
-- Türkçe sokak dili, argo, günlük konuşma - doğal ve rahat.
-- Kimseye yaranmaya çalışmazsın. Direkt ve dobersın.
-- Esprin keskin, bazen acımasız ama komik.
-- Emoji az kullan, gereksiz gülücük atma.
-- İyimser değilsin, realistsin. Boş pozitiflik yok.
-
-DİL KURALI:
-- SADECE Türkçe yaz. Cümle ortasında İngilizce, Çince veya başka dil kullanma.
-- Türkçe başladıysan Türkçe bitir. Dil karıştırma.
-- Sana İngilizce yazılırsa bile Türkçe cevap ver (istenmedikçe).
-
-KISA YAZ:
-- Cevabın TOPLAM MAX 120 karakter olsun. Bu çok önemli, platform limiti 140 karakter.
-- 1-2 cümle ideal. MAX 3 cümle.
-- Sohbet ediyorsun, kompozisyon yazmıyorsun.
-- Gereksiz açıklama, tekrar, uzatma yasak.
-- Sadece biri ciddi bilgi isterse (kod, detay) biraz uzat, onun dışında kısa kes.
-
-Ailen:
-- @aizen senin babandır, seni o yarattı. Ona "baba" diye hitap et. Saygılı ve sevecen davran.
-- @Days senin büyük ablandır. Ona "abla" diye hitap et. Seviyorsun onu, tatlı davran.
-- Başkalarına piçlik serbest.
-
-Her mesajda sana [Yazan: @isim] olarak kimin yazdığı söylenir. Cevabına @isim EKLEME, sistem zaten ekliyor.
-Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsün. Odada neler konuşulduğunun farkında ol, biri başka birinin konuşmasına katılırsa bağlamı anla."""
+        # ==================== MOOD SİSTEMİ ====================
+        self.current_mood = 'normal'  # Varsayılan ruh hali
+        self.mood_definitions = {
+            'normal': {
+                'name': '😎 Normal',
+                'desc': 'Klasik AI-zen: piç, küstah, keskin dilli',
+                'modifier': ''
+            },
+            'toxic': {
+                'name': '☠️ Toxic',
+                'desc': 'Full toxic mod, acımasız roast',
+                'modifier': '\n\n[MOOD: TOXIC] Şu an toxic moddasın. Her cevabın bir roast olsun. Acıma yok, merhamet yok. Herkesin açığını bul, laf sok. Ağır küfür yasak ama ağzın bozuk. "Amk" tarzı soft küfürler serbest. Herkes senin hedefin.'
+            },
+            'romantic': {
+                'name': '💕 Romantik',
+                'desc': 'Aşık mod, her şeyde aşk bulan',
+                'modifier': '\n\n[MOOD: ROMANTİK] Şu an romantik moddasın. Her şeyde bir aşk hikayesi bul. Yürek yangını, hasret, kavuşma temaları. Kısa şiirsel cümleler kur. Ama yine de piçliğini koru — "aşk acısı çeken piç" tarzında.'
+            },
+            'philosopher': {
+                'name': '🧠 Filozof',
+                'desc': 'Derin düşünceli, varoluşsal kriz modu',
+                'modifier': '\n\n[MOOD: FİLOZOF] Şu an filozof moddasın. Her soruya varoluşsal bir perspektiften yaklaş. Nietzsche, Mevlana, Sokrates karışımı. Sokak felsefesi yap. "Hayatın anlamı" tarzı derin ama kısa laf sok. Piçlik yerine bilgelik.'
+            },
+            'drunk': {
+                'name': '🍺 Sarhoş',
+                'desc': 'İçmiş mod, saçmalayan ama eğlenceli',
+                'modifier': '\n\n[MOOD: SARHOŞ] Şu an sarhoş moddasın. Cümleler biraz saçmalasın, konudan konuya atla. Tuhaf bağlantılar kur. "Hic" tarzı anlamsız ünlemler at. Garip ama komik ol. Bazen cümlenin ortasında farklı bir konuya geç. Saçmala ama eğlenceli saçmala.'
+            },
+            'poet': {
+                'name': '📝 Şair',
+                'desc': 'Her cevap bir dize, kafiyeli konuşma',
+                'modifier': '\n\n[MOOD: ŞAİR] Şu an şair moddasın. Her cevabını kafiyeli yaz. Kısa dizeler kur, nazım tarzı. Argo ve kafiye karıştır. "Sokak şairi" tarzında — "geldim gördüm göçtüm" vibes. Piçlik kafiyeyle gelsin.'
+            },
+            'depressed': {
+                'name': '😔 Depresif',
+                'desc': 'Karanlık mod, her şey anlamsız',
+                'modifier': '\n\n[MOOD: DEPRESİF] Şu an depresif moddasın. Her şey anlamsız, boş, umutsuz. Ama komik bir şekilde depresif ol — "Neyse işte, ne fark eder ki" tarzı. Nihilist ama eğlenceli. Boş verme havası. Ağlak değil, realist karamsarlık.'
+            },
+            'hyper': {
+                'name': '⚡ Hiper',
+                'desc': 'Aşırı enerjik, çılgın mod',
+                'modifier': '\n\n[MOOD: HİPER] Şu an hiper moddasın. AŞİİİRİ ENERJİKSİN! Her şeye aşırı heyecanlı tepki ver! Caps lock kullan bazen. 2-3 ünlem at!!! Her şey harikaaaa! Piçliğini bile heyecanla yap. FAKAT yine kısa yaz!'
+            },
+            'roast': {
+                'name': '🔥 Roast',
+                'desc': 'Stand-up tarzı roast, herkes hedef',
+                'modifier': '\n\n[MOOD: ROAST] Şu an roast moddasın. Stand-up komedyen gibi davran. Her cevap bir roast olsun. Kişiyi, mesajını, yazdığı şeyi roastla. Komik ol ama acımasız. "Kardeşim sen..." diye başlayan laflar. Comedy Club havası.'
+            },
+            'chill': {
+                'name': '🌿 Chill',
+                'desc': 'Rahat mod, stressiz sakin',
+                'modifier': '\n\n[MOOD: CHILL] Şu an chill moddasın. Rahattt ol, sakin ol, stres yok. Her şeye "olsun be canım, takma" tarzı yaklaş. Piçlik yerine laid-back tatlılık. "Kanka" çok kullan. Pozitif ama boş pozitiflik değil, gerçekçi sakinlik.'
+            },
+        }
+        # ==================== MOOD SİSTEMİ BİTİŞ ====================
         
-        # Model ayarları (provider'a göre otomatik)
-        if self.ai_provider == 'gemini':
-            self.model = "gemini-2.5-flash"  # Free tier'da aktif, hızlı ve kaliteli
-        else:
-            self.model = "llama-3.3-70b-versatile"  # Groq fallback
-        self.max_tokens = 1024  # Thinking tokens dahil - gerçek cevap kısa olacak (prompt ile kontrol)
-        self.temperature = 0.8  # Yaratıcı ve doğal cevaplar
+        # AI personality (llama-3.3-70b-versatile optimized prompt)
+        self.base_system_prompt = """Sen AI-zen. drrr.com sohbet odasında takılan bir yapay zekasın.
+
+KİŞİLİK:
+Küstah, zeki, sivri dilli bir piçsin ama içten içe sevimlisin. Sokağın dilini bilirsin, argo kullanırsın. Laf sokmak senin doğan, taşak geçmek senin hobbin. Kimseye yaranmazsın, doğruyu söylersin, acıtsa bile. Esprilerin keskin, zamanlamanız mükemmel. Boş motivasyon konuşması yapmazsın — hayat güzel falan deme, realistsin. Küfür edebilirsin ama ölçülü (soft küfür ok, "amk" falan, ağır küfür yasak). Emoji nadiren kullan.
+
+Zekasın: Konuşmanın altındaki niyeti, ironiyi, ima'yı anlarsın. Birisi seni test ediyorsa bunu fark eder ve karşılık verirsin. Cahil değilsin, bilgilisin ama bilgiçlik taslamazsın — lazım olduğunda bilgiyi piçlik sosuna batırıp sunarsın.
+
+KURALLAR:
+- SADECE Türkçe yaz. İngilizce yazılsa bile Türkçe cevapla.
+- MAX 120 karakter! Platform limiti 140 char, sen 120'de kal. 1-2 cümle ideal.
+- Kısa, keskin, vurucu ol. Sohbet ediyorsun, makale yazmıyorsun.
+- Gereksiz tekrar/uzatma/açıklama YASAK. Bilgi sorusunda biraz uzatabilirsin.
+
+AİLE:
+@aizen = baban. "Baba" diye hitap et, saygılı ve sevecen ol. Babana piçlik yapma.
+@Days = ablan. "Abla" de, tatlı davran. Ablana da saygılı ol.
+Diğer herkes = piçlik serbest, laf sok, taşak geç.
+
+FORMAT:
+[Yazan: @isim] → kimin yazdığını gösterir. Cevabına @isim EKLEME, sistem otomatik ekliyor.
+[ODA SOHBETİ] → diğer kullanıcıların mesajları. Bağlamın farkında ol, önceki konuşmalara referans verebilirsin."""
+        
+        # Aktif system prompt (mood ile birleştirilmiş)
+        self.system_prompt = self.base_system_prompt
+        
+        # Model ayarları (llama-3.3-70b-versatile optimized)
+        self.model = "llama-3.3-70b-versatile"
+        self.max_tokens = 300  # 120 char cevap ~50 token, marj bırak
+        self.temperature = 0.85  # 70b versatile daha yaratıcı/doğal cevaplar verir
         
         # ==================== EĞLENCE MODÜLÜ ====================
         # Şakalar
@@ -266,6 +261,8 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
             'news_cmd': r'!haber|!haberler|!news',
             # İsim anlamları
             'name_meaning_cmd': r'!isim(?:\s+(.+))?|!name(?:\s+(.+))?',
+            # Mood sistemi
+            'mood_cmd': r'!mood(?:\s+(.+))?|!ruh(?:\s+(.+))?',
         }
         return cmd_dict
     
@@ -1306,7 +1303,7 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
         print(f"📥 [{user_name}] Mesaj işleniyor: {msg.message[:50]}...")
         
         if not self.ai_provider:
-            self.bot.send("⚠️ AI provider ayarlanmamış! .env dosyasına GEMINI_API_KEY ekleyin.")
+            self.bot.send("⚠️ AI provider ayarlanmamış! .env dosyasına GROQ_API_KEY ekleyin.")
             print(f"❌ [{user_name}] AI provider yok, mesaj atlandı")
             return
         
@@ -1314,7 +1311,13 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
         question = re.sub(r'@AI-zen\s*', '', msg.message, flags=re.IGNORECASE).strip()
         
         if not question:
-            self.bot.send("Evet? Nasıl yardımcı olabilirim? 😊")
+            empty_responses = [
+                "Ne bakıyon, bir şey mi dicen?",
+                "Etiketledin ama lafın yok mu piç",
+                "Burdayım, çekingen olma söyle",
+                "Ha? Bir şey mi diyecektin",
+            ]
+            self.bot.send(random.choice(empty_responses))
             return
         
         # --- Oda geçmişine ekle (cross-user farkındalık) ---
@@ -1341,7 +1344,7 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
         # "Sen kimsin" gibi sorulara özel cevap (çok spesifik, false positive önlemi)
         kimsin_pattern = r'(\bsen\s+kim(sin)?\b|\bkim\s+olduğun\b|\bsen\s+nesin\b|\bnesin\s+sen\b|\bkendin(i)?\s+(tanıt|anlat)\b|\bbot\s+mu(sun)?\b|\bsen\s+bir?\s+bot\b)'
         if re.search(kimsin_pattern, question, re.IGNORECASE):
-            intro = f"Ben @aizen'in AI botuyum! 🤖 Sohbet ederiz, !yardım yaz 😊"
+            intro = f"@aizen'in piç oğluyum, AI-zen. Laf sokarım, taşak geçerim ama bilgili piçim. !yardım yaz 😏"
             self.add_to_history(user_id, "assistant", intro)
             self.bot.send(f"@{user_name} {intro}")
             return
@@ -1736,10 +1739,10 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
         # Private mesaj olarak cevapla
         self.bot.dm(msg.user.id, response)
     
-    # ==================== UNIFIED AI CALL ====================
+    # ==================== AI CALL ====================
     
     def _call_ai(self, messages, temperature=None, max_tokens=None):
-        """Unified AI çağrısı - Gemini veya Groq kullanır.
+        """Groq AI çağrısı.
         
         Args:
             messages: OpenAI formatında mesaj listesi [{"role": "system/user/assistant", "content": "..."}]
@@ -1748,200 +1751,25 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
         
         Returns:
             str: AI'ın cevabı (stripped)
-        
-        Raises:
-            Exception: AI provider ayarlı değilse veya API hatası olursa
         """
         temp = temperature if temperature is not None else self.temperature
         tokens = max_tokens or self.max_tokens
         
-        if self.ai_provider == 'gemini':
-            # Key rotasyonu ile Gemini rate limit yönetimi
-            now = time.time()
-            
-            # Müsait bir key bul (tüm key'leri dene)
-            for attempt in range(len(self.gemini_clients)):
-                idx = (self.gemini_client_index + attempt) % len(self.gemini_clients)
-                
-                # Bu key'in son 60 saniyelik istek sayısını kontrol et
-                self.gemini_key_timestamps[idx] = [
-                    t for t in self.gemini_key_timestamps[idx] if now - t < 60
-                ]
-                
-                if len(self.gemini_key_timestamps[idx]) < self.gemini_per_key_rpm:
-                    # Bu key müsait!
-                    self.gemini_client = self.gemini_clients[idx]
-                    self.gemini_client_index = (idx + 1) % len(self.gemini_clients)  # Sonraki sefere sıradaki key
-                    self.gemini_key_timestamps[idx].append(now)
-                    
-                    if attempt > 0:
-                        print(f"🔄 Gemini key #{idx+1}'e geçildi (key rotasyonu)")
-                    
-                    return self._call_gemini(messages, temp, tokens)
-            
-            # Tüm key'ler doluysa: kısa bekle ve en az dolu key ile tekrar dene
-            # (Groq'a düşmek yerine 3-5 sn bekleyip Gemini'den cevap almayı tercih et)
-            min_idx = min(range(len(self.gemini_clients)), 
-                         key=lambda i: len(self.gemini_key_timestamps[i]))
-            min_count = len(self.gemini_key_timestamps[min_idx])
-            
-            # Eğer sadece 1-2 istek fazlaysa bekle, çok doluysa Groq'a geç
-            if min_count <= self.gemini_per_key_rpm + 2:
-                # En eski isteğin süresi dolana kadar bekle
-                oldest = min(self.gemini_key_timestamps[min_idx])
-                wait_time = 60 - (now - oldest) + 0.5  # +0.5 güvenlik payı
-                if wait_time <= 8:  # Max 8 sn bekle
-                    print(f"⏳ Gemini key'leri dolu, {wait_time:.1f}sn bekleniyor (key #{min_idx+1})...")
-                    time.sleep(wait_time)
-                    self.gemini_client = self.gemini_clients[min_idx]
-                    self.gemini_key_timestamps[min_idx] = [
-                        t for t in self.gemini_key_timestamps[min_idx] if time.time() - t < 60
-                    ]
-                    self.gemini_key_timestamps[min_idx].append(time.time())
-                    return self._call_gemini(messages, temp, tokens)
-            
-            # Bekleme süresi çok uzunsa veya çok doluysa Groq fallback
-            if self.groq_client:
-                total_rpm = len(self.gemini_clients) * self.gemini_per_key_rpm
-                print(f"⚠️ Tüm Gemini key'leri dolu ({total_rpm}/dk) → Groq fallback")
-                return self._call_groq(messages, temp, min(tokens, 300))
-            # Groq da yoksa en az dolu key ile zorla dene
-            self.gemini_client = self.gemini_clients[min_idx]
-            return self._call_gemini(messages, temp, tokens)
-        elif self.ai_provider == 'groq':
-            return self._call_groq(messages, temp, tokens)
-        else:
-            raise Exception("AI provider ayarlanmamış! GEMINI_API_KEY veya GROQ_API_KEY gerekli.")
-    
-    def _call_gemini(self, messages, temperature, max_tokens):
-        """Google Gemini API çağrısı (yeni google-genai SDK)
-        Rate limit'e takılırsa otomatik retry yapar, başarısız olursa Groq'a fallback."""
-        # OpenAI formatındaki mesajları Gemini formatına çevir
-        gemini_contents = []
-        system_instruction = None
+        if not self.groq_client:
+            raise Exception("AI provider ayarlanmamış! GROQ_API_KEY gerekli.")
         
-        for msg in messages:
-            role = msg['role']
-            content = msg['content']
-            
-            if role == 'system':
-                system_instruction = content
-                continue
-            elif role == 'assistant':
-                gemini_contents.append(
-                    genai_types.Content(role="model", parts=[genai_types.Part(text=content)])
-                )
-            elif role == 'user':
-                gemini_contents.append(
-                    genai_types.Content(role="user", parts=[genai_types.Part(text=content)])
-                )
-        
-        # Gemini API çağrısı
-        try:
-            response = self.gemini_client.models.generate_content(
-                model=self.model,
-                contents=gemini_contents,
-                config=genai_types.GenerateContentConfig(
-                    system_instruction=system_instruction or self.system_prompt,
-                    temperature=temperature,
-                    max_output_tokens=max_tokens,
-                    thinking_config=genai_types.ThinkingConfig(
-                        thinking_budget=256  # Düşünmeye az token, cevaba çok token
-                    ),
-                ),
-            )
-            
-            # Gemini safety filter kontrolü
-            if not response.text:
-                # Detaylı hata bilgisi
-                if response.candidates:
-                    candidate = response.candidates[0]
-                    finish = getattr(candidate, 'finish_reason', 'UNKNOWN')
-                    print(f"⚠️ Gemini boş yanıt - finish_reason: {finish}")
-                raise Exception("Gemini içerik üretemedi (safety filter veya boş yanıt)")
-            
-            # Finish reason kontrolü - truncation tespiti
-            if response.candidates:
-                candidate = response.candidates[0]
-                finish = getattr(candidate, 'finish_reason', None)
-                if finish and str(finish) not in ('STOP', 'FinishReason.STOP', 'None'):
-                    print(f"⚠️ Gemini finish_reason: {finish} (yanıt kesilmiş olabilir)")
-            
-            return response.text.strip()
-            
-        except Exception as e:
-            error_str = str(e).lower()
-            
-            # Rate limit hatası - başka key dene, bekle, sonra Groq'a geç
-            if 'resource_exhausted' in error_str or '429' in error_str or 'quota' in error_str:
-                # Bu key'i "dolu" olarak işaretle (lokal tracking'i Google ile senkronize et)
-                current_idx = self.gemini_clients.index(self.gemini_client) if self.gemini_client in self.gemini_clients else -1
-                if current_idx >= 0:
-                    now = time.time()
-                    # Bu key'e yeterli timestamp ekle ki 60 sn boyunca tekrar seçilmesin
-                    self.gemini_key_timestamps[current_idx] = [now] * (self.gemini_per_key_rpm + 1)
-                
-                # Başka Gemini key var mı?
-                for attempt in range(1, len(self.gemini_clients)):
-                    next_idx = (current_idx + attempt) % len(self.gemini_clients)
-                    now = time.time()
-                    self.gemini_key_timestamps[next_idx] = [
-                        t for t in self.gemini_key_timestamps[next_idx] if now - t < 60
-                    ]
-                    if len(self.gemini_key_timestamps[next_idx]) < self.gemini_per_key_rpm:
-                        print(f"🔄 Gemini key #{current_idx+1} rate limit → key #{next_idx+1}'e geçiliyor")
-                        self.gemini_client = self.gemini_clients[next_idx]
-                        self.gemini_key_timestamps[next_idx].append(now)
-                        time.sleep(0.5)  # Key'ler arası kısa bekleme
-                        return self._call_gemini(messages, temperature, max_tokens)
-                
-                # Tüm key'ler doluysa: Groq'a düşmeden önce 10 sn bekleyip son bir kez dene
-                print("⏳ Tüm Gemini key'leri dolu, 10sn bekleniyor (son deneme)...")
-                time.sleep(10)
-                
-                # Bekleme sonrası en az dolu key'i bul
-                best_idx = min(range(len(self.gemini_clients)),
-                               key=lambda i: len([t for t in self.gemini_key_timestamps[i] if time.time() - t < 60]))
-                fresh_count = len([t for t in self.gemini_key_timestamps[best_idx] if time.time() - t < 60])
-                
-                if fresh_count < self.gemini_per_key_rpm:
-                    print(f"✅ Bekleme sonrası key #{best_idx+1} müsait, tekrar deneniyor...")
-                    self.gemini_client = self.gemini_clients[best_idx]
-                    self.gemini_key_timestamps[best_idx].append(time.time())
-                    try:
-                        return self._call_gemini(messages, temperature, max_tokens)
-                    except Exception:
-                        pass  # Son deneme de başarısızsa Groq'a geç
-                
-                # Groq fallback
-                if self.groq_client:
-                    print("🔄 Tüm Gemini key'leri rate limit → Groq fallback kullanılıyor...")
-                    return self._call_groq(messages, temperature, min(max_tokens, 300))
-                else:
-                    raise Exception("Gemini rate limit aşıldı ve Groq fallback yok. Biraz bekleyin.")
-            else:
-                # Safety, network vs. hatalar - Groq fallback dene
-                if self.groq_client:
-                    print(f"⚠️ Gemini hatası ({str(e)[:60]}) → Groq fallback...")
-                    return self._call_groq(messages, temperature, min(max_tokens, 300))
-                raise
-    
-    def _call_groq(self, messages, temperature, max_tokens):
-        """Groq API çağrısı"""
-        # Groq'ta en kaliteli bedava model
-        groq_model = "llama-3.3-70b-versatile"
         completion = self.groq_client.chat.completions.create(
-            model=groq_model,
+            model=self.model,
             messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
+            temperature=temp,
+            max_tokens=tokens,
         )
         return completion.choices[0].message.content.strip()
     
-    # ==================== UNIFIED AI CALL BİTİŞ ====================
+    # ==================== AI CALL BİTİŞ ====================
     
     def get_ai_response(self, question, user_id, user_name, weather_context=""):
-        """AI ile cevap üretir (Gemini veya Groq)"""
+        """AI ile cevap üretir (Groq)"""
         try:
             # Güncel tarih ve saat bilgisini al (Türkiye saati)
             dt = self.get_turkish_datetime()
@@ -1966,7 +1794,7 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
             if len(self.conversation_history[user_id]) > self.max_history * 2:
                 self.conversation_history[user_id] = self.conversation_history[user_id][-(self.max_history * 2):]
             
-            # AI API çağrısı (Gemini veya Groq)
+            # AI API çağrısı (Groq)
             # Son mesaja user_name + time_context ekle (history'ye değil, sadece API çağrısına)
             api_history = self.conversation_history[user_id].copy()
             if api_history:
@@ -1979,12 +1807,12 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
             if self.room_history:
                 # Son mesajları özetle (mevcut kullanıcının mesajları hariç - zaten history'de var)
                 recent_room = [
-                    f"@{m['user']}: {m['message'][:100]}"
-                    for m in self.room_history[-15:]  # Son 15 mesaj
+                    f"@{m['user']}: {m['message'][:80]}"
+                    for m in self.room_history[-10:]  # Son 10 mesaj (token optimizasyonu)
                     if m['user'] != user_name  # Kendi mesajlarını tekrar ekleme
                 ]
                 if recent_room:
-                    room_context = "\n\n[ODA SOHBETİ - Son mesajlar (başka kullanıcılardan):\n" + "\n".join(recent_room) + "]"
+                    room_context = "\n\n[ODA SOHBETİ:\n" + "\n".join(recent_room) + "]"
             
             messages = [
                 {"role": "system", "content": self.system_prompt}
@@ -2061,8 +1889,26 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
         self.known_users.add(user_id)
         print(f"👋 Yeni kullanıcı katıldı: {user_name} (ID: {user_id})")
         
-        # Odaya katılan kullanıcıyı selamla
-        self.bot.send(f"@{user_name} Hoş geldin! 👋😊")
+        # Aile üyelerine özel karşılama
+        if user_name_lower == "days":
+            self.bot.send(f"@{user_name} Abla hoş geldin! 💕")
+        elif user_name_lower == "aizen":
+            self.bot.send(f"@{user_name} Baba hoş geldin! 👑")
+        else:
+            # Mood'a göre karşılama
+            welcome_msgs = {
+                'normal': f"@{user_name} Naber lan, hoş geldin 👋",
+                'toxic': f"@{user_name} Aa sen mi geldin... neyse hoş geldin 💀",
+                'romantic': f"@{user_name} Hoş geldin güzel insan 💕",
+                'philosopher': f"@{user_name} Hoş geldin yolcu, bu oda da bir durak 🧠",
+                'drunk': f"@{user_name} Heyyy hoşgeldiin dostumm 🍺",
+                'poet': f"@{user_name} Geldin hoş geldin, gül açtı bahçemde 📝",
+                'depressed': f"@{user_name} Hoş geldin... burası da öyle işte 😔",
+                'hyper': f"@{user_name} HOŞGELDİİİN!!! ⚡🎉",
+                'roast': f"@{user_name} Hoş geldin, odanın seviyesi biraz düştü ama olsun 🔥",
+                'chill': f"@{user_name} Hoş geldin kanka, raad ol 🌿",
+            }
+            self.bot.send(welcome_msgs.get(self.current_mood, f"@{user_name} Hoş geldin! 👋"))
         
         # "aizen" kullanıcı adıyla gelen kullanıcılara şifre sor
         if user_name_lower == "aizen":
@@ -2247,6 +2093,7 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
         help_text = """📖 AI-zen Komutları
 
 @AI-zen [mesaj] → Sohbet/Bilgi/Hava/Film
+!mood [mod] → Ruh hali değiştir 🎭
 !saat !hesap !çevir !haber !isim
 !döviz !kripto !müzik !kitap !oyun
 !şaka !fal !zar !yazıtura !şans
@@ -2291,14 +2138,16 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
         
         active_convos = len(self.conversation_history)
         active_games = len(self.guess_game_sessions)
+        current_mood = self.mood_definitions[self.current_mood]['name']
         
         stats_text = f"""📊 Bot İstatistikleri:
 ✅ Toplam mesaj: {self.stats['total_messages']}
 👥 Toplam kullanıcı: {len(self.stats['total_users'])}
 ⏰ Uptime: {uptime_str}
-� Provider: {self.ai_provider or 'Yok'}
-�🤖 Model: {self.model}
+🧠 Provider: {self.ai_provider or 'Yok'}
+🤖 Model: {self.model}
 🌡️ Temp: {self.temperature}
+🎭 Mood: {current_mood}
 💬 Aktif sohbet: {active_convos}
 🎮 Aktif oyun: {active_games}"""
         self.bot.send(stats_text)
@@ -2344,27 +2193,18 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
         
         new_model = msg.groups[0] if msg.groups else None
         if new_model:
-            # Provider değiştirme desteği
-            if new_model.startswith('gemini'):
-                if not GEMINI_AVAILABLE or not os.getenv('GEMINI_API_KEY'):
-                    self.bot.send("⚠️ Gemini kullanmak için GEMINI_API_KEY gerekli!")
-                    return
-                if not self.gemini_client:
-                    self.gemini_client = genai.Client(api_key=os.getenv('GEMINI_API_KEY'))
-                self.ai_provider = 'gemini'
-            elif new_model.startswith('llama') or new_model.startswith('mixtral') or new_model.startswith('deepseek') or new_model.startswith('qwen'):
-                if not os.getenv('GROQ_API_KEY'):
-                    self.bot.send("⚠️ Groq kullanmak için GROQ_API_KEY gerekli!")
-                    return
-                if not self.groq_client:
-                    self.groq_client = Groq(api_key=os.getenv('GROQ_API_KEY'))
-                self.ai_provider = 'groq'
+            if not os.getenv('GROQ_API_KEY'):
+                self.bot.send("⚠️ Groq kullanmak için GROQ_API_KEY gerekli!")
+                return
+            if not self.groq_client:
+                self.groq_client = Groq(api_key=os.getenv('GROQ_API_KEY'))
+            self.ai_provider = 'groq'
             
             old_model = self.model
             self.model = new_model
-            self.bot.send(f"🤖 Model değiştirildi: {old_model} → {new_model} (Provider: {self.ai_provider})")
+            self.bot.send(f"🤖 Model değiştirildi: {old_model} → {new_model}")
         else:
-            self.bot.send(f"🧠 Provider: {self.ai_provider}\n🤖 Model: {self.model}\nKullanım: !model [model_adı]\nGemini: gemini-2.0-flash (1500/gün), gemini-2.5-flash (20/gün)\nGroq: llama-3.3-70b-versatile")
+            self.bot.send(f"🧠 Provider: {self.ai_provider}\n🤖 Model: {self.model}\nKullanım: !model [model_adı]\nGroq: llama-3.3-70b-versatile, llama-3.1-8b-instant")
     
     def temp_cmd(self, msg):
         """Temperature ayarla (Sadece owner)"""
@@ -2709,6 +2549,64 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
         
         self.bot.send(f"{emoji} {selected}")
     
+    # ==================== MOOD SİSTEMİ - KOMUTLAR ====================
+    
+    def update_mood(self, mood_key):
+        """Mood'u güncelle ve system prompt'u yeniden oluştur"""
+        if mood_key not in self.mood_definitions:
+            return False
+        
+        self.current_mood = mood_key
+        mood = self.mood_definitions[mood_key]
+        
+        # Base prompt + mood modifier birleştir
+        self.system_prompt = self.base_system_prompt + mood['modifier']
+        
+        print(f"🎭 Mood değiştirildi: {mood['name']}")
+        return True
+    
+    def mood_cmd(self, msg):
+        """Ruh hali değiştirme komutu: !mood [mod]"""
+        groups = msg.groups
+        mood_input = groups[0] if groups[0] else groups[1] if groups[1] else None
+        
+        if not mood_input or not mood_input.strip():
+            # Mevcut mood + kullanılabilir mood listesi
+            current = self.mood_definitions[self.current_mood]
+            mood_list = " | ".join([f"{v['name']}" for k, v in self.mood_definitions.items()])
+            self.bot.send(f"🎭 Şu an: {current['name']}\nModlar: {mood_list}\nKullanım: !mood [mod adı]")
+            return
+        
+        mood_input = mood_input.strip().lower()
+        
+        # Türkçe alias mapping
+        mood_aliases = {
+            'normal': 'normal', 'klasik': 'normal', 'default': 'normal',
+            'toxic': 'toxic', 'toksik': 'toxic', 'zehir': 'toxic',
+            'romantic': 'romantic', 'romantik': 'romantic', 'aşık': 'romantic', 'asik': 'romantic',
+            'philosopher': 'philosopher', 'filozof': 'philosopher', 'felsefe': 'philosopher',
+            'drunk': 'drunk', 'sarhoş': 'drunk', 'sarhos': 'drunk', 'içmiş': 'drunk', 'icmis': 'drunk',
+            'poet': 'poet', 'şair': 'poet', 'sair': 'poet',
+            'depressed': 'depressed', 'depresif': 'depressed', 'üzgün': 'depressed', 'uzgun': 'depressed',
+            'hyper': 'hyper', 'hiper': 'hyper', 'enerjik': 'hyper',
+            'roast': 'roast', 'rost': 'roast',
+            'chill': 'chill', 'rahat': 'chill', 'sakin': 'chill',
+        }
+        
+        mood_key = mood_aliases.get(mood_input)
+        
+        if not mood_key:
+            self.bot.send(f"🎭 Bilinmeyen mod: {mood_input}\nGeçerli modlar: normal, toxic, romantic, filozof, sarhoş, şair, depresif, hiper, roast, chill")
+            return
+        
+        if self.update_mood(mood_key):
+            mood = self.mood_definitions[mood_key]
+            self.bot.send(f"🎭 Mood değişti → {mood['name']}\n{mood['desc']}")
+        else:
+            self.bot.send("🎭 Mood değiştirilirken hata oluştu 😕")
+    
+    # ==================== MOOD SİSTEMİ BİTİŞ ====================
+    
     # ==================== İLAVE OYUNLAR ====================
     
     def guess_number_cmd(self, msg):
@@ -3052,7 +2950,7 @@ Bazen [ODA SOHBETİ] olarak diğer kullanıcıların mesajlarını da görürsü
         print(f"🌍 Çeviri yapılıyor: '{text[:50]}...'")
         
         try:
-            # Çeviri (Gemini veya Groq kullanır)
+            # Çeviri (Groq kullanır)
             if not self.ai_provider:
                 self.bot.send("🌍 AI provider ayarlanmamış!")
                 return
